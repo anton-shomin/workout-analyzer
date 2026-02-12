@@ -219,7 +219,11 @@ def analyze_workout(date: str, config: Dict) -> None:
         )
         
         # Calculate muscle balance
-        muscle_balance = calculate_muscle_balance(exercises_data, workout_data.get('scheme', {}))
+        muscle_balance = calculate_muscle_balance(
+            exercises_data, 
+            workout_data.get('exercises', []), 
+            workout_data.get('scheme', {})
+        )
         
         # Get AI analysis from Gemini with fallback to Groq
         try:

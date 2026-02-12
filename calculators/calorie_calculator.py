@@ -287,6 +287,9 @@ def calculate_workout_calories(
     }
 
 
+# Constants
+DEFAULT_BODYWEIGHT_LOAD = 30  # kg, effective load for bodyweight exercises
+
 def calculate_muscle_balance(
     exercises_data: list[dict],
     exercises: list[dict] = None,
@@ -329,7 +332,7 @@ def calculate_muscle_balance(
         # Fallback weight for bodyweight exercises to ensure they count
         # 30kg is roughly effective load for pushup/pullup for average person
         if weight == 0:
-            weight = 30
+            weight = DEFAULT_BODYWEIGHT_LOAD
             
         # Calculate volume for this exercise
         exercise_volume = total_reps * weight

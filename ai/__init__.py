@@ -6,7 +6,7 @@ Gemini API (workout analysis).
 """
 
 from .perplexity_client import PerplexityClient, search_exercise_data
-from .gemini_client import GeminiClient, analyze_workout
+from .gemini_client import GeminiClient
 
 __all__ = [
     "PerplexityClient",

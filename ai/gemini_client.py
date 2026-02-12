@@ -93,23 +93,4 @@ class GeminiClient:
             raise e
 
 
-def analyze_workout(
-    workout_data: dict,
-    calories: int,
-    muscle_balance: dict
-) -> str:
-    """
-    Analyze a workout using Gemini API.
-    
-    This is a convenience function that creates a client and makes the request.
-    
-    Args:
-        workout_data: Parsed workout data from workout_parser.
-        calories: Calculated calories burned.
-        muscle_balance: Dictionary of muscle group percentages.
-        
-    Returns:
-        Markdown formatted analysis text.
-    """
-    client = GeminiClient()
-    return client.analyze_workout(workout_data, calories, muscle_balance)
+
