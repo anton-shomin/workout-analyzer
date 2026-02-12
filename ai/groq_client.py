@@ -68,7 +68,8 @@ class GroqClient:
         self,
         workout_data: dict,
         calories: int,
-        muscle_balance: dict
+        muscle_balance: dict,
+        actual_duration_minutes: int = 0
     ) -> str:
         """
         Analyze a workout using Groq API.
@@ -77,17 +78,26 @@ class GroqClient:
             workout_data: Parsed workout data from workout_parser.
             calories: Calculated calories burned.
             muscle_balance: Dictionary of muscle group percentages.
+            actual_duration_minutes: Actual duration of the workout in minutes.
             
         Returns:
             Markdown formatted analysis text.
         """
         from ai.prompts import build_workout_prompt, clean_markdown_response
-        prompt = build_workout_prompt(workout_data, calories, muscle_balance)
+        prompt = build_workout_prompt(workout_data, calories, muscle_balance, actual_duration_minutes)
         
+        # Load system prompt
+        try:
+            template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Templates', 'system_prompt.txt')
+            with open(template_path, 'r', encoding='utf-8') as f:
+                system_prompt = f.read()
+        except FileNotFoundError:
+            system_prompt = "You are an expert fitness coach specializing in kettlebell training. Provide structured, markdown-formatted analysis."
+
         messages = [
             {
                 "role": "system",
-                "content": "You are an expert fitness coach specializing in kettlebell training. Provide structured, markdown-formatted analysis."
+                "content": system_prompt
             },
             {
                 "role": "user",

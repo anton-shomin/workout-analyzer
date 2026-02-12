@@ -289,78 +289,109 @@ def calculate_workout_calories(
 
 def calculate_muscle_balance(
     exercises_data: list[dict],
+    exercises: list[dict] = None,
     scheme: dict = None
 ) -> dict:
     """
-    Calculate muscle group balance from exercise data.
+    Calculate muscle group balance from exercise data using volume (reps * weight).
     
     Args:
         exercises_data: List of exercise data dictionaries.
-        scheme: Optional workout scheme dictionary for additional context.
+        exercises: List of parsed exercises with reps and equipment info.
+        scheme: Optional workout scheme dictionary.
         
     Returns:
-        Dictionary with muscle balance analysis including:
-        - balance: dict with muscle groups and their percentages
-        - primary_muscle: most worked muscle group
-        - total_exercises: count of exercises
-        - imbalances: list of potential imbalances
-        - is_balanced: boolean indicating if workout is balanced
+        Dictionary with muscle balance analysis.
     """
     if scheme is None:
         scheme = {}
     
     muscle_groups = ['shoulders', 'chest', 'back', 'core', 'legs', 'arms', 'fullBody']
     
-    counts = {mg: 0 for mg in muscle_groups}
-    total_exercises = 0
+    volume_by_muscle = {mg: 0.0 for mg in muscle_groups}
+    total_volume = 0.0
     
-    for data in exercises_data:
-        exercise_muscle_groups = data.get('muscle_groups', [])
-        for mg in exercise_muscle_groups:
-            if mg in counts:
-                counts[mg] += 1
-        total_exercises += 1
+    # Process exercises
+    iterator = zip(exercises, exercises_data) if exercises else zip([{'reps': 10, 'equipment': ''}] * len(exercises_data), exercises_data)
     
-    # Calculate percentages and identify imbalances
+    for exercise, data in iterator:
+        # Get reps
+        reps = exercise.get('reps', 0)
+        if isinstance(reps, list):
+            total_reps = sum(reps)
+        else:
+            total_reps = reps or 0
+            
+        # Get weight
+        equipment = exercise.get('equipment') or data.get('equipment', '')
+        weight = extract_weight_from_equipment(equipment)
+        
+        # Fallback weight for bodyweight exercises to ensure they count
+        # 30kg is roughly effective load for pushup/pullup for average person
+        if weight == 0:
+            weight = 30
+            
+        # Calculate volume for this exercise
+        exercise_volume = total_reps * weight
+        
+        # Distribute volume to muscle groups
+        exercise_mgs = data.get('muscle_groups', [])
+        for mg in exercise_mgs:
+            if mg in volume_by_muscle:
+                volume_by_muscle[mg] += exercise_volume
+                
+        # Add to total volume (counting each muscle group contribution)
+        # If we just sum exercise_volume, percentages will act differently.
+        # Let's sum volume added to all muscles to normalize percentages properly.
+        total_volume += exercise_volume * len([mg for mg in exercise_mgs if mg in volume_by_muscle])
+
+    # Calculate percentages
     balance = {}
     primary_muscle = None
-    max_count = 0
+    max_volume = 0.0
     
     for mg in muscle_groups:
-        count = counts[mg]
-        percentage = round((count / total_exercises * 100), 1) if total_exercises > 0 else 0
+        volume = volume_by_muscle[mg]
+        percentage = round((volume / total_volume * 100), 1) if total_volume > 0 else 0
+        
         balance[mg] = {
-            'count': count,
-            'percentage': percentage
+            'volume': round(volume),
+            'percentage': percentage,
+            'count': 0 # Deprecated but kept for structure compatibility if needed
         }
         
-        if count > max_count:
-            max_count = count
+        if volume > max_volume:
+            max_volume = volume
             primary_muscle = mg
-    
-    # Identify potential imbalances
+            
+    # Identify imbalances
     imbalances = []
-    avg_percentage = 100 / len(muscle_groups)
-    
-    for mg, data in balance.items():
-        deviation = data['percentage'] - avg_percentage
-        if deviation > 25:  # More than 25% above average
-            imbalances.append({
-                'muscle': mg,
-                'type': 'overdeveloped',
-                'deviation': round(deviation, 1)
-            })
-        elif deviation < -15:  # More than 15% below average
-            imbalances.append({
-                'muscle': mg,
-                'type': 'underdeveloped',
-                'deviation': round(abs(deviation), 1)
-            })
+    # Only calculate if we have significant volume
+    if total_volume > 0:
+        avg_percentage = 100 / len([v for v in volume_by_muscle.values() if v > 0]) if any(volume_by_muscle.values()) else 0
+        
+        for mg, data in balance.items():
+            if data['percentage'] == 0:
+                continue
+                
+            deviation = data['percentage'] - avg_percentage
+            if deviation > 20:  # Threshold for overdeveloped
+                imbalances.append({
+                    'muscle': mg,
+                    'type': 'high_volume',
+                    'deviation': round(deviation, 1)
+                })
+            elif deviation < -15 and avg_percentage > 0:  # Threshold for underdeveloped
+                imbalances.append({
+                    'muscle': mg,
+                    'type': 'low_volume',
+                    'deviation': round(abs(deviation), 1)
+                })
     
     return {
         'balance': balance,
         'primary_muscle': primary_muscle,
-        'total_exercises': total_exercises,
+        'total_volume': round(total_volume),
         'imbalances': imbalances,
         'is_balanced': len(imbalances) == 0
     }

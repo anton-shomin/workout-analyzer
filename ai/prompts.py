@@ -8,7 +8,8 @@ import re
 def build_workout_prompt(
     workout_data: dict,
     calories: int,
-    muscle_balance: dict
+    muscle_balance: dict,
+    actual_duration_minutes: int = 0
 ) -> str:
     """
     Build a prompt for AI to analyze a workout.
@@ -17,10 +18,13 @@ def build_workout_prompt(
         workout_data: Parsed workout data from workout_parser.
         calories: Calculated calories burned.
         muscle_balance: Dictionary of muscle group percentages.
+        actual_duration_minutes: Actual duration of the workout in minutes.
 
     Returns:
         Formatted prompt string.
     """
+    import os
+    
     date = workout_data.get("date", "Unknown")
     workout_type = workout_data.get("type", "Unknown")
     scheme = workout_data.get("scheme", {})
@@ -29,17 +33,22 @@ def build_workout_prompt(
     # Build scheme description
     scheme_type = scheme.get("type", workout_type)
     pattern = scheme.get("pattern", "")
-    reps_per_set = scheme.get("reps_per_set", [])
     total_reps = scheme.get("total_reps", 0)
-    time_per_rep = scheme.get("time_per_rep", 0)
-    rest_between = scheme.get("rest_between", 0)
 
-    # Calculate estimated time
-    estimated_time = (
-        total_reps * time_per_rep / 60 +
-        (total_reps / max(len(reps_per_set), 1) - 1) * rest_between / 60
-    )
-    estimated_time = max(estimated_time, 10)  # Minimum 10 minutes
+    # Use passed duration or fall back to estimation if 0
+    if actual_duration_minutes > 0:
+        estimated_time = actual_duration_minutes
+    else:
+        # Fallback estimation logic
+        reps_per_set = scheme.get("reps_per_set", [])
+        time_per_rep = scheme.get("time_per_rep", 0)
+        rest_between = scheme.get("rest_between", 0)
+        
+        estimated_time = (
+            total_reps * time_per_rep / 60 +
+            (total_reps / max(len(reps_per_set), 1) - 1) * rest_between / 60
+        )
+        estimated_time = max(estimated_time, 10)  # Minimum 10 minutes
 
     # Build exercises list
     exercises_list = []
@@ -60,12 +69,19 @@ def build_workout_prompt(
     else:
         balance_str = "No muscle balance data available"
 
-    prompt = f"""Ты эксперт по силовым тренировкам с гирями. Проанализируй тренировку:
+    # Load prompt template
+    template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Templates', 'prompt_workout.txt')
+    try:
+        with open(template_path, 'r', encoding='utf-8') as f:
+            template = f.read()
+    except FileNotFoundError:
+        # Fallback if template file is missing
+        template = """Ты эксперт по силовым тренировкам с гирями. Проанализируй тренировку:
 
 **Дата:** {date}
-**Тип:** {workout_type}
+**Тип:** {type}
 **Схема:** {scheme_type}
-**Паттерн:** {pattern if pattern else 'Standard'}
+**Паттерн:** {pattern}
 
 **Упражнения:**
 {exercises_str}
@@ -73,7 +89,7 @@ def build_workout_prompt(
 **Метрики:**
 - Всего повторений: {total_reps}
 - Расчетные калории: {calories} ккал
-- Примерное время: {int(estimated_time)} минут
+- Примерное время: {estimated_time} минут
 
 **Баланс мышечных групп:**
 {balance_str}
@@ -84,8 +100,20 @@ def build_workout_prompt(
 3. **Рекомендации** - что добавить/убрать в следующий раз
 4. **Восстановление** - сколько дней отдыха нужно
 
-Формат ответа: структурированный markdown.
-"""
+Формат ответа: структурированный markdown."""
+
+    prompt = template.format(
+        date=date,
+        type=workout_type,
+        scheme_type=scheme_type,
+        pattern=pattern if pattern else 'Standard',
+        exercises_str=exercises_str,
+        total_reps=total_reps,
+        calories=calories,
+        estimated_time=int(estimated_time),
+        balance_str=balance_str
+    )
+    
     return prompt
 
 

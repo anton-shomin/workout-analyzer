@@ -228,7 +228,8 @@ def analyze_workout(date: str, config: Dict) -> None:
             gemini_analysis = gemini_client.analyze_workout(
                 workout_data, 
                 int(calories_result['total_calories']),
-                {k: v.get('percentage', 0) for k, v in muscle_balance.get('balance', {}).items()}
+                {k: v.get('percentage', 0) for k, v in muscle_balance.get('balance', {}).items()},
+                int(calories_result['estimated_time_minutes'])
             )
         except Exception as e:
             print(f"⚠️  Gemini API error: {e}")
@@ -240,7 +241,8 @@ def analyze_workout(date: str, config: Dict) -> None:
                 gemini_analysis = groq_client.analyze_workout(
                     workout_data,
                     int(calories_result['total_calories']),
-                    {k: v.get('percentage', 0) for k, v in muscle_balance.get('balance', {}).items()}
+                    {k: v.get('percentage', 0) for k, v in muscle_balance.get('balance', {}).items()},
+                    int(calories_result['estimated_time_minutes'])
                 )
             except Exception as groq_e:
                 print(f"⚠️  Groq API error: {groq_e}")
