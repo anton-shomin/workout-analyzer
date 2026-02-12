@@ -1,0 +1,151 @@
+name: Analyze Workouts
+
+on:
+  schedule:
+    - cron: "0 21 * * *" # 23:00 EET (Kyiv/Riga time)
+  workflow_dispatch:
+    inputs:
+      workout_date:
+        description: "Specific workout date to analyze (YYYY-MM-DD)"
+        required: false
+        type: string
+      analyze_latest:
+        description: "Analyze latest workout"
+        required: false
+        type: boolean
+        default: true
+
+env:
+  PYTHON_VERSION: "3.11"
+  WORKING_DIR: workout-analyzer
+
+jobs:
+  analyze:
+    name: Analyze Workout
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIR }}
+
+    steps:
+      # Checkout repository
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            ${{ env.WORKING_DIR }}
+            requirements.txt
+          sparse-checkout-cone-mode: false
+
+      # Setup Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+          cache-dependency-path: ${{ env.WORKING_DIR }}/requirements.txt
+
+      # Install dependencies
+      - name: Install dependencies
+        run: |
+          cd ${{ env.WORKING_DIR }}
+          pip install -r requirements.txt
+
+      # Configure Git for commits
+      - name: Configure Git
+        run: |
+          cd ${{ env.WORKING_DIR }}
+          git config --global user.name 'Workout Analyzer Bot'
+          git config --global user.email 'bot@workout.local'
+          git config --global init.defaultBranch main
+
+      # Initialize Obsidian vault submodule if configured
+      - name: Initialize Obsidian vault submodule
+        if: env.OBSIDIAN_VAULT_SUBMODULE == 'true'
+        run: |
+          cd ${{ env.WORKING_DIR }}
+          git submodule update --init --recursive
+
+      # Analyze workout
+      - name: Analyze workout
+        id: analyze
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+          OBSIDIAN_VAULT_PATH: ${{ secrets.OBSIDIAN_VAULT_PATH || '' }}
+        run: |
+          cd ${{ env.WORKING_DIR }}
+
+          if [ "${{ github.event.inputs.workout_date }}" != "" ]; then
+            echo "Analyzing workout for date: ${{ github.event.inputs.workout_date }}"
+            python main.py --analyze-workout "${{ github.event.inputs.workout_date }}"
+          else
+            echo "Analyzing latest workout"
+            python main.py --analyze-latest
+          fi
+
+      # Commit and push changes
+      - name: Commit changes
+        id: commit
+        if: always() && steps.analyze.outcome == 'success'
+        env:
+          GIT_TOKEN: ${{ secrets.GIT_TOKEN }}
+        run: |
+          cd ${{ env.WORKING_DIR }}
+
+          # Check if there are changes to commit
+          if git diff --quiet && git diff --cached --quiet; then
+            echo "No changes to commit"
+            exit 0
+          fi
+
+          # Check for changes in vault path if configured
+          if [ -n "$OBSIDIAN_VAULT_PATH" ] && [ -d "$OBSIDIAN_VAULT_PATH/.git" ]; then
+            cd "$OBSIDIAN_VAULT_PATH"
+            git config --global user.name 'Workout Analyzer Bot'
+            git config --global user.email 'bot@workout.local'
+            
+            if git diff --quiet && git diff --cached --quiet; then
+              echo "No changes to commit in vault"
+              exit 0
+            fi
+            
+            git add .
+            git commit -m "Auto-analyze workout - $(date '+%Y-%m-%d %H:%M')" || echo "No changes"
+            
+            if [ -n "$GIT_TOKEN" ]; then
+              git push
+            else
+              echo "GIT_TOKEN not set, skipping push"
+            fi
+          else
+            # Commit to main repo (analysis cache files)
+            git add .
+            git commit -m "Auto-analyze workout - $(date '+%Y-%m-%d %H:%M')" || echo "No changes"
+            
+            if [ -n "$GIT_TOKEN" ]; then
+              git push
+            else
+              echo "GIT_TOKEN not set, skipping push"
+            fi
+          fi
+
+      # Upload artifacts if enabled
+      - name: Upload analysis logs
+        if: always() && env.UPLOAD_ARTIFACTS == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workout-analysis-logs
+          path: ${{ env.WORKING_DIR }}/logs/
+          retention-days: 7
+
+      # Notify on failure
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Workflow failed. Check GitHub Actions logs for details."
+          # Add Slack/Discord notification here if needed
+          # Example for Slack:
+          # curl -X POST -H 'Content-type: application/json' \
+          #   --data '{"text":"Workout Analyzer workflow failed"}' \
+          #   ${{ secrets.SLACK_WEBHOOK_URL }}

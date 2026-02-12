@@ -1,0 +1,17 @@
+obsidian:
+  vault_path: "/Users/antonshomin/Obsidian/Obsidian_vault/Спорт"
+  exercises_folder: "Упражнения"
+  workouts_folder: "Training Diary"
+  cache_folder: ".cache/exercises"
+
+user:
+  default_weight: 85
+
+ai:
+  gemini_model: "gemini-2.0-flash"
+  perplexity_model: "sonar"
+  groq_model: "llama-3.3-70b-versatile"
+
+calculation:
+  base_weight: 70
+  default_met: 8.0
