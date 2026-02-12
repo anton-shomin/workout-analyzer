@@ -163,113 +163,176 @@ def update_single_exercise(name: str, config: Dict) -> None:
 def analyze_workout(date: str, config: Dict) -> None:
     """
     Analyze a workout by date.
-    
-    Args:
-        date: Workout date in YYYY-MM-DD format.
-        config: Configuration dictionary.
+    Directly queries Perplexity for unknown exercises without creating files.
     """
     vault_path = config['obsidian']['vault_path']
     workouts_folder = config['obsidian']['workouts_folder']
     exercises_folder = config['obsidian']['exercises_folder']
     cache_folder = config['obsidian']['cache_folder']
-    
+
     full_workouts_path = os.path.join(vault_path, workouts_folder)
     full_exercises_path = os.path.join(vault_path, exercises_folder)
-    
-    # Find workout file by date
+
+    # 1. Find workout file by date
     workout_path = None
     for filename in os.listdir(full_workouts_path):
         if filename.endswith('.md') and date in filename:
             workout_path = os.path.join(full_workouts_path, filename)
             break
-    
+
     if not workout_path:
         print(f"❌ Workout not found for date: {date}")
         return
-    
+
     try:
         print(f"📊 Analyzing workout: {date}")
-        
-        # Parse workout file
         workout_data = parse_workout_file(workout_path)
         print(f"   Found {len(workout_data.get('exercises', []))} exercises")
-        
-        # Get data for each exercise
+
         exercises_data = []
+
+        # 2. Get data for each exercise
         for exercise in workout_data.get('exercises', []):
             ex_name = exercise.get('name', '')
             ex_equipment = exercise.get('equipment', '')
-            
-            data = get_exercise_data(
-                name=ex_name,
-                equipment=ex_equipment,
-                vault_path=vault_path,
-                cache_dir=os.path.join(vault_path, cache_folder),
-                exercises_folder=full_exercises_path
+            safe_name = sanitize_filename(ex_name)
+            ex_file_path = os.path.join(
+                full_exercises_path, f"{safe_name}.md"
             )
+
+            data = {}
+
+            # Branch A: local file exists -> use cache flow
+            if os.path.exists(ex_file_path):
+                data = get_exercise_data(
+                    name=ex_name,
+                    equipment=ex_equipment,
+                    vault_path=vault_path,
+                    cache_dir=os.path.join(vault_path, cache_folder),
+                    exercises_folder=full_exercises_path
+                )
+                print(
+                    f"   📁 {ex_name}: "
+                    f"{data.get('cal_per_rep', 0)} kcal/rep "
+                    f"(MET: {data.get('met_base', 0)})"
+                )
+
+            # Branch B: no file -> ask Perplexity in-memory
+            else:
+                print(
+                    f"   🌐 {ex_name}: not found locally, "
+                    f"querying Perplexity..."
+                )
+                try:
+                    from ai.perplexity_client import PerplexityClient
+                    client = PerplexityClient()
+                    ai_data = client.search_exercise_data(
+                        ex_name, ex_equipment
+                    )
+
+                    data = {
+                        'name': ex_name,
+                        'equipment': ex_equipment,
+                        'met_base': ai_data.get('met_base') or 8.0,
+                        'cal_per_rep': ai_data.get('cal_per_rep') or 0.0,
+                        'muscle_groups': ai_data.get(
+                            'muscle_groups', []
+                        ),
+                        'source': 'perplexity_live'
+                    }
+                    print(
+                        f"     ✅ Got: {data['cal_per_rep']} kcal/rep, "
+                        f"MET {data['met_base']}"
+                    )
+
+                except Exception as e:
+                    print(f"     ⚠️ Perplexity error: {e}")
+                    data = {
+                        'name': ex_name,
+                        'equipment': ex_equipment,
+                        'met_base': 8.0,
+                        'cal_per_rep': 2.0,
+                        'muscle_groups': ['fullBody'],
+                        'source': 'fallback'
+                    }
+
             exercises_data.append(data)
-            print(f"   - {ex_name}: {data.get('source', 'unknown')}")
-        
-        # Calculate calories
-        user_weight = workout_data.get('weight', config['user']['default_weight'])
+
+        # 3. Calculate calories
+        user_weight = workout_data.get(
+            'weight', config['user']['default_weight']
+        )
         base_weight = config['calculation']['base_weight']
-        
+
         calories_result = calculate_workout_calories(
             workout_data, exercises_data, user_weight, base_weight
         )
-        
-        # Calculate muscle balance
+
+        # 4. Calculate muscle balance
         muscle_balance = calculate_muscle_balance(
-            exercises_data, 
-            workout_data.get('exercises', []), 
+            exercises_data,
+            workout_data.get('exercises', []),
             workout_data.get('scheme', {})
         )
-        
-        # Get AI analysis from Gemini with fallback to Groq
+
+        # 5. AI analysis (Gemini -> Groq fallback)
+        balance_pct = {
+            k: v.get('percentage', 0)
+            for k, v in muscle_balance.get('balance', {}).items()
+        }
+        est_time = int(calories_result['estimated_time_minutes'])
+        total_cal = int(calories_result['total_calories'])
+
         try:
             from ai.gemini_client import GeminiClient
             gemini_client = GeminiClient()
             gemini_analysis = gemini_client.analyze_workout(
-                workout_data, 
-                int(calories_result['total_calories']),
-                {k: v.get('percentage', 0) for k, v in muscle_balance.get('balance', {}).items()},
-                int(calories_result['estimated_time_minutes'])
+                workout_data, total_cal, balance_pct, est_time
             )
         except Exception as e:
-            print(f"⚠️  Gemini API error: {e}")
+            print(f"⚠️  Gemini error: {e}")
             print("🔄 Switching to Groq API...")
             try:
                 from ai.groq_client import GroqClient
-                groq_model = config.get('ai', {}).get('groq_model', 'llama-3.3-70b-versatile')
+                groq_model = config.get('ai', {}).get(
+                    'groq_model', 'llama-3.3-70b-versatile'
+                )
                 groq_client = GroqClient(model=groq_model)
                 gemini_analysis = groq_client.analyze_workout(
-                    workout_data,
-                    int(calories_result['total_calories']),
-                    {k: v.get('percentage', 0) for k, v in muscle_balance.get('balance', {}).items()},
-                    int(calories_result['estimated_time_minutes'])
+                    workout_data, total_cal, balance_pct, est_time
                 )
             except Exception as groq_e:
-                print(f"⚠️  Groq API error: {groq_e}")
-                gemini_analysis = "Не удалось получить анализ от AI (Gemini и Groq недоступны)."
-        
-        # Prepare analysis for writer
+                print(f"⚠️  Groq error: {groq_e}")
+                gemini_analysis = (
+                    "AI analysis unavailable "
+                    "(Gemini and Groq both failed)."
+                )
+
+        # 6. Write results
+        avg_met = (
+            sum(d.get('met_base', 0) for d in exercises_data)
+            / max(len(exercises_data), 1)
+        )
         analysis = {
             'total_reps': calories_result['total_reps'],
             'total_calories': calories_result['total_calories'],
-            'estimated_time_minutes': calories_result['estimated_time_minutes'],
-            'average_met': sum(d.get('met_base', 0) for d in exercises_data) / max(len(exercises_data), 1),
-            'muscle_groups_balance': {k: v.get('percentage', 0) for k, v in muscle_balance.get('balance', {}).items()}
+            'estimated_time_minutes': est_time,
+            'average_met': avg_met,
+            'muscle_groups_balance': balance_pct
         }
-        
-        # Write analysis to file
-        write_analysis_to_workout(workout_path, analysis, gemini_analysis, user_weight)
-        
+
+        write_analysis_to_workout(
+            workout_path, analysis, gemini_analysis, user_weight
+        )
+
         print(f"\n✅ Analysis complete!")
-        print(f"   Total reps: {calories_result['total_reps']}")
-        print(f"   Calories: ~{calories_result['total_calories']:.0f} kcal")
-        print(f"   Time: ~{calories_result['estimated_time_minutes']:.0f} minutes")
-        print(f"   Primary muscle: {muscle_balance.get('primary_muscle', 'N/A')}")
-        
+        print(f"   Calories: ~{total_cal} kcal")
+        print(f"   Time: ~{est_time} min")
+        print(
+            f"   Primary muscle: "
+            f"{muscle_balance.get('primary_muscle', 'N/A')}"
+        )
+
     except Exception as e:
         print(f"❌ Error analyzing workout: {e}")
         import traceback

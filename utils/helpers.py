@@ -20,12 +20,14 @@ def ensure_dir_exists(path: str) -> None:
     os.makedirs(path, exist_ok=True)
 
 def sanitize_filename(name: str) -> str:
-    """Sanitizes a string to be safe for filenames."""
-    # Replace invalid characters with underscore or empty string
-    # Typical invalid characters for filenames: / \ : * ? " < > |
-    # And potentially spaces or other special chars
-    name = re.sub(r'[\\/*?:":<>|]', '', name)
-    name = name.strip()
+    """Sanitizes a string to be safe for filenames.
+
+    Converts to lowercase and replaces spaces with underscores
+    to match Obsidian vault naming convention.
+    """
+    name = name.lower().strip()
+    name = re.sub(r'[\\/*?":"<>|]', '', name)
+    name = re.sub(r'\s+', '_', name)
     return name
 
 def extract_json_from_text(text: str) -> dict:
