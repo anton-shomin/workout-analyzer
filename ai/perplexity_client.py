@@ -80,7 +80,7 @@ class PerplexityClient:
         Returns:
             Formatted prompt string.
         """
-        prompt = f"""Analyze this kettlebell exercise: "{name}"
+        prompt = f"""Analyze this exercise: "{name}"
 Equipment: {equipment}"""
         
         if components:
@@ -92,9 +92,12 @@ Equipment: {equipment}"""
         prompt += """
         
 Provide scientific data:
-1. MET value (Metabolic Equivalent of Task) - numerical value
-2. Estimated calories per repetition for 70kg person
-3. Primary muscle groups worked (from: shoulders, chest, back, core, legs, arms, fullBody)
+1. MET value (Metabolic Equivalent of Task) - numerical value using 2011 Compendium of Physical Activities if possible.
+2. Estimated TOTAL calories (gross) per single repetition for a 70kg person.
+   - For weighted compound movements (e.g., thrusters, swings), consider mechanical work + efficiency (~25%).
+   - Typical range: 0.5 - 3.0 kcal/rep for loaded full-body movements.
+   - Do NOT underestimate; include the cost of moving bodyweight + load.
+3. Primary muscle groups worked (select from: shoulders, chest, back, core, legs, arms, fullBody)
 
 Return in JSON format:
 {

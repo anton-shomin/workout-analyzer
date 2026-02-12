@@ -329,7 +329,21 @@ def extract_scheme(content: str) -> dict:
         scheme['total_reps'] = rounds
         scheme['time_per_rep'] = work_time
         scheme['rest_between'] = rest_time
-    
+
+    # Extract Equipment/Snaryad
+    # e.g. **Снаряд:** 1x24кг or Equipment: 2x16kg
+    equipment_match = re.search(
+        r'(?:снаряд|equipment|вес)[:\s]*([^\n]+)',
+        content,
+        re.IGNORECASE
+    )
+    if equipment_match:
+        # cleanup markdown bold/italic if caught
+        raw_eq = equipment_match.group(1).strip()
+        # remove trailing ** if present
+        raw_eq = raw_eq.replace('**', '').replace('__', '').strip()
+        scheme['equipment'] = raw_eq
+
     return scheme
 
 

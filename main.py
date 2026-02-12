@@ -192,9 +192,15 @@ def analyze_workout(date: str, config: Dict) -> None:
         exercises_data = []
 
         # 2. Get data for each exercise
+        scheme_equipment = workout_data.get('scheme', {}).get('equipment', '')
+
         for exercise in workout_data.get('exercises', []):
             ex_name = exercise.get('name', '')
             ex_equipment = exercise.get('equipment', '')
+
+            # Fallback to scheme equipment if exercise equipment is missing
+            if not ex_equipment and scheme_equipment:
+                ex_equipment = scheme_equipment
             safe_name = sanitize_filename(ex_name)
             ex_file_path = os.path.join(
                 full_exercises_path, f"{safe_name}.md"
@@ -244,6 +250,9 @@ def analyze_workout(date: str, config: Dict) -> None:
                         f"     ✅ Got: {data['cal_per_rep']} kcal/rep, "
                         f"MET {data['met_base']}"
                     )
+                    if data.get('reasoning'):
+                        # print(f"     🤔 Reasoning: {data['reasoning'][:100]}...")
+                        pass
 
                 except Exception as e:
                     print(f"     ⚠️ Perplexity error: {e}")
