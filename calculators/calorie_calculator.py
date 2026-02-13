@@ -45,6 +45,22 @@ def calculate_workout_calories(
     - High rep / Low time workouts (Minotaur): Use volume
     - Low rep / High time workouts (Evil Flow): Use time
     """
+    if not exercises_data:
+        print("⚠️  Warning: No exercise data found for calculator. Returning 0 calories.")
+        return {
+            'total_calories': 0,
+            'per_exercise': [],
+            'muscle_group_distribution': {},
+            'total_reps': 0,
+            'total_sets': 0,
+            'total_time_seconds': 0,
+            'estimated_time_minutes': 0,
+            'user_weight': user_weight,
+            'calculated_at': datetime.now(timezone.utc).isoformat(),
+            'calculation_method': 'none',
+            'error': 'no_exercises_data'
+        }
+
     scheme = workout_data.get('scheme', {})
     exercises = workout_data.get('exercises', [])
 

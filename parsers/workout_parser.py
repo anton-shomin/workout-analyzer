@@ -34,8 +34,18 @@ def parse_workout_file(file_path):
         duration = 0
 
     scheme = _parse_scheme(content)
-    # Передаем весь контент, чтобы найти упражнения даже без заголовка
-    exercises = _parse_exercises(content)
+    
+    # FIX: Remove AI Analysis section BEFORE parsing exercises
+    # This prevents the parser from finding exercises inside the analysis text
+    content_without_analysis = re.sub(
+        r'## AI Analysis\n.*?(?=\n## |\Z)', 
+        '', 
+        content, 
+        flags=re.DOTALL
+    )
+
+    # Передаем контент без анализа
+    exercises = _parse_exercises(content_without_analysis)
 
     return {
         'date': date_str,
@@ -163,7 +173,7 @@ def _parse_exercises(content):
                 clean_line = clean_line.replace(f'({equipment})', '').strip()
 
             exercises.append({
-                'name': clean_line,
+                'name': clean_line.strip(),
                 'equipment': equipment,
                 'reps': reps
             })
