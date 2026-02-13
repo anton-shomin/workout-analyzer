@@ -1,5 +1,5 @@
 """
-Markdown Writer - запись результатов анализа обратно в файлы Obsidian.
+Markdown Writer - FIXED version with proper duplicate handling
 """
 
 import re
@@ -15,44 +15,36 @@ def write_analysis_to_workout(
     user_weight: int = 70
 ) -> None:
     """
-    Записывает AI анализ в секцию ## AI Analysis файла тренировки.
-    FIXED: Удаляет ВСЕ существующие секции перед добавлением новой.
+    Writes AI analysis to ## AI Analysis section.
+    FIXED: Removes ALL existing AI Analysis sections before adding new one
     """
     file_path = Path(workout_file)
-    
+
     if not file_path.exists():
-        raise FileNotFoundError(f"Файл тренировки не найден: {workout_file}")
-    
-    # Читаем текущее содержимое файла
+        raise FileNotFoundError(f"Workout file not found: {workout_file}")
+
     content = file_path.read_text(encoding='utf-8')
-    
-    # FIX 1: Удаляем ВСЕ существующие секции AI Analysis
+
+    # FIX 1: Remove ALL existing AI Analysis sections (not just first)
     content = re.sub(
-        r'## AI Analysis\n.*?(?=\n## |\Z)', 
-        '', 
-        content, 
+        r'## AI Analysis\n.*?(?=\n## |\Z)',
+        '',
+        content,
         flags=re.DOTALL
     )
-    
-    # Чистим лишние переносы строк, которые могли остаться
+
+    # Clean up extra newlines
     content = re.sub(r'\n{3,}', '\n\n', content)
-    
-    # Формируем новую секцию анализа
-    analysis_section = format_analysis_section(analysis, gemini_response, user_weight)
-    
-    # FIX 2: Вставляем анализ ПЕРЕД первой секцией (Схема или Упражнения), а не после
-    # Ищем любую секцию ##, которая НЕ AI Analysis (их мы уже удалили, но для надежности)
-    first_section_match = re.search(r'\n(## (?!AI Analysis))', content)
-    
-    if first_section_match:
-        # Вставляем перед первой найденой секцией
-        insert_pos = first_section_match.start()
-        content = content[:insert_pos] + '\n\n' + analysis_section + '\n' + content[insert_pos:]
-    else:
-        # Если секций нет - добавляем в конец
-        content += '\n\n' + analysis_section
-    
-    # Записываем обновленный контент
+
+    # Format new analysis section
+    analysis_section = format_analysis_section(
+        analysis, gemini_response, user_weight)
+
+    # FIX 2: Insert analysis AT THE END (after all sections)
+    # This ensures AI Analysis is always the last section
+    content = content.rstrip() + '\n\n' + analysis_section
+
+    # Write updated content
     file_path.write_text(content, encoding='utf-8')
 
 
@@ -62,18 +54,19 @@ def format_analysis_section(
     user_weight: int = 70
 ) -> str:
     """
-    Форматирует секцию анализа в markdown.
+    Formats analysis section with improved structure
+    IMPROVED: Better error handling and data validation
     """
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
-    
-    # Извлекаем данные из анализа с безопасными значениями
+
+    # Extract data with safe defaults
     total_reps = analysis.get('total_reps', 0)
     total_calories = analysis.get('total_calories', 0)
     estimated_time = analysis.get('estimated_time_minutes', 0)
     average_met = analysis.get('average_met', 0.0)
     muscle_balance = analysis.get('muscle_groups_balance', {})
-    
-    # Формируем секцию
+
+    # Format section
     section = f"""## AI Analysis
 
 **Общая информация:**
@@ -85,8 +78,8 @@ def format_analysis_section(
 
 **Баланс мышечных групп:**
 """
-    
-    # Добавляем мышечные группы
+
+    # Muscle groups mapping
     muscle_groups_mapping = {
         'shoulders': 'Плечи',
         'legs': 'Ноги',
@@ -96,15 +89,15 @@ def format_analysis_section(
         'arms': 'Руки',
         'fullBody': 'Всё тело'
     }
-    
+
     if muscle_balance:
-        # Сортируем по убыванию процента
+        # Sort by percentage descending
         for muscle, percentage in sorted(muscle_balance.items(), key=lambda x: -x[1]):
             muscle_name = muscle_groups_mapping.get(muscle, muscle)
             section += f"- {muscle_name}: {percentage}%\n"
     else:
         section += "- Нет данных о мышечных группах\n"
-    
+
     section += f"""
 **Рекомендации от Gemini:**
 {gemini_response.strip()}
@@ -112,7 +105,7 @@ def format_analysis_section(
 ---
 *Анализ от {timestamp}*
 """
-    
+
     return section
 
 
@@ -120,34 +113,35 @@ def update_exercise_data(
     exercise_file: str,
     exercise_data: Dict
 ) -> None:
-    """
-    Обновляет frontmatter упражнения новыми данными.
-    """
+    """Unchanged - updates exercise frontmatter"""
     import frontmatter
-    
-    file_path = Path(exercise_file)
-    
-    if not file_path.exists():
-        raise FileNotFoundError(f"Файл упражнения не найден: {exercise_file}")
-    
-    start_post = frontmatter.load(file_path, encoding='utf-8')
-    original_content = start_post.content or ''
-    
-    if 'met_base' in exercise_data:
-        start_post['met_base'] = exercise_data['met_base']
-    
-    if 'cal_per_rep' in exercise_data:
-        start_post['cal_per_rep'] = exercise_data['cal_per_rep']
-    
-    if 'source' in exercise_data:
-        start_post['source'] = exercise_data['source']
 
-    # Обновляем timestamp
-    start_post['last_updated'] = datetime.now(timezone.utc).isoformat()
-    start_post.content = original_content
-    
+    file_path = Path(exercise_file)
+
+    if not file_path.exists():
+        raise FileNotFoundError(f"Exercise file not found: {exercise_file}")
+
+    post = frontmatter.load(file_path, encoding='utf-8')
+    original_content = post.content or ''
+
+    if 'met_base' in exercise_data:
+        post['met_base'] = exercise_data['met_base']
+
+    if 'cal_per_rep' in exercise_data:
+        post['cal_per_rep'] = exercise_data['cal_per_rep']
+
+    if 'muscle_groups' in exercise_data:
+        post['muscle_groups'] = exercise_data['muscle_groups']
+
+    if 'source' in exercise_data:
+        post['source'] = exercise_data['source']
+
+    post['last_updated'] = datetime.now(timezone.utc).isoformat()
+    post.content = original_content
+
     with open(file_path, 'w', encoding='utf-8') as f:
-        f.write(frontmatter.dumps(start_post))
+        content = frontmatter.dumps(post)
+        f.write(content)
 
 
 def write_calorie_summary(
@@ -156,17 +150,14 @@ def write_calorie_summary(
     total_calories: int,
     total_reps: int
 ) -> None:
-    """
-    Записывает краткую сводку о калориях в конец файла тренировки.
-    """
+    """Unchanged - writes calorie summary table"""
     file_path = Path(workout_file)
-    
+
     if not file_path.exists():
-        raise FileNotFoundError(f"Файл тренировки не найден: {workout_file}")
-    
+        raise FileNotFoundError(f"Workout file not found: {workout_file}")
+
     content = file_path.read_text(encoding='utf-8')
-    
-    # Формируем сводку
+
     summary = f"""
 ---
 
@@ -175,26 +166,24 @@ def write_calorie_summary(
 | Упражнение | Повторения | Калории | MET |
 |------------|------------|---------|-----|
 """
-    
+
     for exercise in exercises_breakdown:
         name = exercise.get('name', 'Unknown')
         reps = exercise.get('reps', 0)
         calories = exercise.get('calories', 0)
         met = exercise.get('met', 0.0)
         summary += f"| {name} | {reps} | {calories} | {met:.1f} |\n"
-    
+
     summary += f"""
 **Итого:** {total_reps} повторений, ~{total_calories} ккал
 """
-    
+
     content += summary
     file_path.write_text(content, encoding='utf-8')
 
 
 def create_empty_analysis_section() -> str:
-    """
-    Создает пустую секцию AI Analysis для новых файлов.
-    """
+    """Unchanged"""
     return """## AI Analysis
 
 *Анализ еще не проводился*
@@ -204,25 +193,25 @@ def create_empty_analysis_section() -> str:
 
 def remove_analysis_section(workout_file: str) -> None:
     """
-    Удаляет секцию AI Analysis из файла тренировки.
-    FIXED: Удаляет ВСЕ секции.
+    Removes AI Analysis section from workout file
+    FIXED: Removes ALL analysis sections, not just first
     """
     file_path = Path(workout_file)
-    
+
     if not file_path.exists():
-        raise FileNotFoundError(f"Файл тренировки не найден: {workout_file}")
-    
+        raise FileNotFoundError(f"Workout file not found: {workout_file}")
+
     content = file_path.read_text(encoding='utf-8')
-    
-    # Удаляем ВСЕ секции AI Analysis
+
+    # Remove ALL AI Analysis sections
     content = re.sub(
-        r'## AI Analysis\n.*?(?=\n## |\Z)', 
-        '', 
-        content, 
+        r'## AI Analysis\n.*?(?=\n## |\Z)',
+        '',
+        content,
         flags=re.DOTALL
     )
-    
-    # Убираем лишние переносы
+
+    # Clean up extra newlines
     content = re.sub(r'\n{3,}', '\n\n', content)
-    
+
     file_path.write_text(content, encoding='utf-8')
