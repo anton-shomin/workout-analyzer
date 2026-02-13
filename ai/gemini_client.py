@@ -9,6 +9,7 @@ import os
 from typing import Optional
 
 from dotenv import load_dotenv
+from ai.prompts import build_workout_prompt, clean_markdown_response
 
 # Load environment variables
 load_dotenv()
@@ -60,7 +61,6 @@ class GeminiClient:
         Returns:
             Markdown formatted analysis text.
         """
-        from ai.prompts import build_workout_prompt, clean_markdown_response
         prompt = build_workout_prompt(workout_data, calories, muscle_balance, actual_duration_minutes)
         
         # Load system prompt

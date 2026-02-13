@@ -154,6 +154,7 @@ def parse_workout_file(filepath: str) -> dict:
         'type': post.metadata.get('type', ''),
         'weight': post.metadata.get('weight', 70),
         'duration': duration,
+        'goal': post.metadata.get('goal', 'Не указано'),  # Added goal field
         'scheme': scheme,
         'exercises': exercises,
         'content': content,

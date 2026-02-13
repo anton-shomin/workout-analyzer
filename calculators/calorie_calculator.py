@@ -70,8 +70,8 @@ def calculate_workout_calories(
         total_reps += ex_reps
 
         # Get intensity data
-        met_base = data.get('met_base', 8.0)
-        cal_per_rep = data.get('cal_per_rep', 0.0)
+        met_base = data.get('met_base') or 8.0
+        cal_per_rep = data.get('cal_per_rep') or 0.0
 
         # --- LOGIC FIX: PRIORITY TO VOLUME ---
         ex_cal = 0

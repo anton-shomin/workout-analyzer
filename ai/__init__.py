@@ -5,12 +5,11 @@ Provides clients for Perplexity API (exercise data search) and
 Gemini API (workout analysis).
 """
 
-from .perplexity_client import PerplexityClient, search_exercise_data
+from .perplexity_client import PerplexityClient
 from .gemini_client import GeminiClient
 
 __all__ = [
     "PerplexityClient",
-    "search_exercise_data",
     "GeminiClient",
     "analyze_workout",
 ]

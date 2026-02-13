@@ -3,6 +3,7 @@ Shared prompt generation and utility logic for AI clients.
 """
 
 import re
+import os
 
 
 def build_workout_prompt(
@@ -12,21 +13,12 @@ def build_workout_prompt(
     actual_duration_minutes: int = 0
 ) -> str:
     """
-    Build a prompt for AI to analyze a workout.
-
-    Args:
-        workout_data: Parsed workout data from workout_parser.
-        calories: Calculated calories burned.
-        muscle_balance: Dictionary of muscle group percentages.
-        actual_duration_minutes: Actual duration of the workout in minutes.
-
-    Returns:
-        Formatted prompt string.
+    Build a prompt for AI to analyze a workout with Goal evaluation.
     """
     import os
-    
     date = workout_data.get("date", "Unknown")
     workout_type = workout_data.get("type", "Unknown")
+    goal = workout_data.get("goal", "Не указано")  # Get goal
     scheme = workout_data.get("scheme", {})
     exercises = workout_data.get("exercises", [])
 
@@ -43,7 +35,7 @@ def build_workout_prompt(
         reps_per_set = scheme.get("reps_per_set", [])
         time_per_rep = scheme.get("time_per_rep", 0)
         rest_between = scheme.get("rest_between", 0)
-        
+
         estimated_time = (
             total_reps * time_per_rep / 60 +
             (total_reps / max(len(reps_per_set), 1) - 1) * rest_between / 60
@@ -69,51 +61,68 @@ def build_workout_prompt(
     else:
         balance_str = "No muscle balance data available"
 
+    # Calculate intensity before template formatting
+    intensity = round(calories/max(estimated_time, 1), 1)
+
     # Load prompt template
     template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Templates', 'prompt_workout.txt')
     try:
         with open(template_path, 'r', encoding='utf-8') as f:
             template = f.read()
     except FileNotFoundError:
-        # Fallback if template file is missing
-        template = """Ты эксперт по силовым тренировкам с гирями. Проанализируй тренировку:
+        # Fallback if template file is missing - updated template with goal evaluation
+        template = """Ты эксперт по функциональному тренингу, гиревому спорту и физиологии. Проанализируй тренировку атлета (мужчина, 81 кг).
 
-**Дата:** {date}
-**Тип:** {type}
-**Схема:** {scheme_type}
-**Паттерн:** {pattern}
+**Контекст:**
+- Дата: {date}
+- Тип: {workout_type}
+- Схема: {scheme_type} ({pattern})
+- ЦЕЛЬ ТРЕНИРОВКИ: "{goal}"
 
 **Упражнения:**
 {exercises_str}
 
 **Метрики:**
 - Всего повторений: {total_reps}
-- Расчетные калории: {calories} ккал
-- Примерное время: {estimated_time} минут
+- Калории: {calories} ккал
+- Время: {int(estimated_time)} минут
+- Интенсивность (Kcal/min): {intensity}
 
-**Баланс мышечных групп:**
+**Баланс мышц:**
 {balance_str}
 
-Дай структурированный анализ по пунктам:
-1. **Баланс мышечных групп** - какие группы работали, есть ли дисбаланс
-2. **Объем и интенсивность** - достаточный ли объем, не перетренировка ли
-3. **Рекомендации** - что добавить/убрать в следующий раз
-4. **Восстановление** - сколько дней отдыха нужно
+Дай жесткий и честный анализ по пунктам:
+1. **Соответствие цели** (САМОЕ ВАЖНОЕ):
+   - Способствует ли эта подборка упражнений и режим работы (EMOM/Ladder) достижению цели "{goal}"?
+   - Если нет, объясни почему.
+   - Оцени гормональный отклик (тестостерон/гормон роста) исходя из объема и базовых движений.
 
-Формат ответа: структурированный markdown."""
+2. **Анализ нагрузки**:
+   - Оцени плотность (повторений в минуту).
+   - Нет ли дисбаланса (например, мало тяг или жимов).
+
+3. **Рекомендации**:
+   - Что изменить, чтобы лучше попадать в цель "{goal}" в следующий раз.
+
+4. **Восстановление**:
+   - Сколько отдыхать исходя из ЦНС-нагрузки этой сессии.
+
+Формат: Markdown. Не лей воду, пиши по делу."""
 
     prompt = template.format(
         date=date,
         type=workout_type,
+        goal=goal,
         scheme_type=scheme_type,
         pattern=pattern if pattern else 'Standard',
         exercises_str=exercises_str,
         total_reps=total_reps,
         calories=calories,
         estimated_time=int(estimated_time),
+        intensity=intensity,
         balance_str=balance_str
     )
-    
+
     return prompt
 
 

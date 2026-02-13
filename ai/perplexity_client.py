@@ -10,6 +10,7 @@ import os
 from typing import Optional
 
 import requests
+import re
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -136,8 +137,6 @@ Return in JSON format:
             Parsed JSON data.
         """
         # Try to find JSON block in the response
-        import re
-        
         # Look for JSON in code blocks
         json_match = re.search(r'```json\s*({.*?})\s*```', text, re.DOTALL)
         if json_match:
@@ -225,31 +224,3 @@ Return in JSON format:
                 "muscle_groups": [],
                 "reasoning": f"API error: {str(e)}"
             }
-
-
-def search_exercise_data(
-    name: str,
-    equipment: str,
-    components: list[str] = None,
-    description: str = None
-) -> dict:
-    """
-    Search for exercise data using Perplexity API.
-    
-    This is a convenience function that creates a client and makes the request.
-    
-    Args:
-        name: Name of the exercise.
-        equipment: Equipment used.
-        components: List of components (for combo exercises).
-        description: Optional description of the exercise.
-        
-    Returns:
-        Dictionary with:
-        - met_base: MET value (float)
-        - cal_per_rep: Calories per repetition (float)
-        - muscle_groups: List of muscle groups (list[str])
-        - reasoning: Brief explanation (str)
-    """
-    client = PerplexityClient()
-    return client.search_exercise_data(name, equipment, components, description)

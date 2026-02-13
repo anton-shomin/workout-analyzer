@@ -134,6 +134,7 @@ Create workout files using this template:
 date: YYYY-MM-DD
 type: Workout Type (e.g., Strength, HIIT)
 weight: 85 # Your weight in kg
+goal: Your workout goal (e.g., Increase deadlift strength, Improve conditioning, Fat loss)
 ---
 
 ## Scheme: Ladder 1-2-3-4-5-5-4-3-2-1
@@ -150,6 +151,8 @@ Description of the workout scheme...
 
 Your notes about the workout...
 ```
+
+The `goal` field is optional but highly recommended as it allows the AI to provide targeted feedback on whether your exercise selection and execution align with your objectives. When included, the AI analysis will specifically evaluate how well the workout supports the stated goal.
 
 ## Supported Workout Schemes
 
