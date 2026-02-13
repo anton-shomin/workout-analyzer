@@ -4,9 +4,7 @@ import frontmatter
 
 def parse_workout_file(file_path):
     """
-    Parses a workout markdown file.
-    Returns a dictionary with metadata and exercises.
-    Supports messy formats and implicit exercise lists.
+    IMPROVED: Parses workout with SCHEME-AWARE repetition calculation
     """
     with open(file_path, 'r', encoding='utf-8') as f:
         post = frontmatter.load(f)
@@ -16,12 +14,12 @@ def parse_workout_file(file_path):
     workout_type = post.metadata.get('type', 'Unknown')
     weight = post.metadata.get('weight', 0)
 
-    # Парсинг времени (Duration)
+    # Parse duration
     duration = post.metadata.get('duration')
     if duration and isinstance(duration, str):
         if 'min' in duration or 'мин' in duration:
             try:
-                duration = float(re.search(r'(\d+)', duration).group(1))
+                duration = float(re.search(r'(\d+\.?\d*)', duration).group(1))
             except:
                 duration = 0
         elif ':' in duration:
@@ -33,10 +31,10 @@ def parse_workout_file(file_path):
     elif not duration:
         duration = 0
 
+    # Parse scheme FIRST
     scheme = _parse_scheme(content)
     
-    # FIX: Remove AI Analysis section BEFORE parsing exercises
-    # This prevents the parser from finding exercises inside the analysis text
+    # Remove AI Analysis section BEFORE parsing exercises
     content_without_analysis = re.sub(
         r'## AI Analysis\n.*?(?=\n## |\Z)', 
         '', 
@@ -44,8 +42,8 @@ def parse_workout_file(file_path):
         flags=re.DOTALL
     )
 
-    # Передаем контент без анализа
-    exercises = _parse_exercises(content_without_analysis)
+    # Parse exercises WITH SCHEME CONTEXT
+    exercises = _parse_exercises(content_without_analysis, scheme)
 
     return {
         'date': date_str,
@@ -60,118 +58,135 @@ def parse_workout_file(file_path):
 
 
 def _parse_scheme(content):
+    """
+    IMPROVED: Extracts scheme and CALCULATES total reps
+    """
     scheme = {}
     scheme_match = re.search(r'## Схема\n(.*?)\n##', content, re.DOTALL)
-    if scheme_match:
-        scheme_text = scheme_match.group(1)
-        for line in scheme_text.strip().split('\n'):
-            if ':' in line:
-                key, value = line.split(':', 1)
-                key = key.strip().replace('**', '').lower()
-                value = value.strip()
+    
+    if not scheme_match:
+        return scheme
+        
+    scheme_text = scheme_match.group(1)
+    
+    for line in scheme_text.strip().split('\n'):
+        if ':' not in line:
+            continue
+            
+        key, value = line.split(':', 1)
+        key = key.strip().replace('**', '').lower()
+        value = value.strip()
 
-                if 'тип' in key:
-                    scheme['type'] = value
-                elif 'кругов' in key:
-                    try:
-                        scheme['rounds'] = int(
-                            re.search(r'\d+', value).group())
-                    except:
-                        scheme['rounds'] = 0
-                elif 'снаряд' in key:
-                    scheme['weight'] = value
-                elif 'паттерн' in key:
-                    scheme['pattern'] = value
+        if 'тип' in key or 'type' in key:
+            scheme['type'] = value
+        elif 'кругов' in key or 'rounds' in key:
+            try:
+                scheme['rounds'] = int(re.search(r'\d+', value).group())
+            except:
+                scheme['rounds'] = 1
+        elif 'снаряд' in key or 'equipment' in key:
+            scheme['equipment'] = value
+        elif 'паттерн' in key or 'pattern' in key:
+            scheme['pattern'] = value
+            # Calculate total reps from pattern
+            scheme['reps_per_exercise'] = _calculate_reps_from_pattern(value)
 
     return scheme
 
 
-def _parse_exercises(content):
+def _calculate_reps_from_pattern(pattern: str) -> int:
+    """
+    Calculates total reps from patterns like:
+    - "1-2-3-3-2-1" → 12
+    - "10-9-8-7-6-5-4-3-2-1" → 55
+    - "1-2-3-4-5" → 15
+    """
+    if not pattern:
+        return 0
+    
+    # Extract all numbers from pattern
+    numbers = re.findall(r'\d+', pattern)
+    if not numbers:
+        return 0
+    
+    # Sum them up
+    total = sum(int(n) for n in numbers)
+    return total
+
+
+def _parse_exercises(content, scheme):
+    """
+    IMPROVED: Parses exercises and APPLIES SCHEME REPS if missing
+    """
     exercises = []
+    
+    # Get reps from scheme
+    reps_from_scheme = scheme.get('reps_per_exercise', 0)
+    rounds = scheme.get('rounds', 1)
+    total_reps_from_scheme = reps_from_scheme * rounds
 
-    # Шаг 1. Пытаемся найти явную секцию "Упражнения"
+    # Find exercise section
     ex_section_match = re.search(
-        r'## Упражнения\n(.*?)(?:\n##|$)', content, re.DOTALL)
+        r'## Упражнения\n(.*?)(?:\n##|$)', 
+        content, 
+        re.DOTALL
+    )
 
-    lines_to_process = []
+    if not ex_section_match:
+        return exercises
 
-    if ex_section_match:
-        # Если секция есть - берем строки из нее
-        block = ex_section_match.group(1)
-        lines_to_process = block.strip().split('\n')
-    else:
-        # Если секции НЕТ - берем весь текст, но выкидываем "Схему" и "Заметки"
-        # чтобы не парсить лишнего
-        clean_content = re.sub(r'## Схема.*?(?:\n##|$)',
-                               '', content, flags=re.DOTALL)
-        clean_content = re.sub(r'## Заметки.*?(?:\n##|$)',
-                               '', clean_content, flags=re.DOTALL)
-        # Убираем заголовок H1
-        clean_content = re.sub(r'# .*?\n', '', clean_content)
+    block = ex_section_match.group(1)
+    lines = block.strip().split('\n')
 
-        lines_to_process = clean_content.strip().split('\n')
-
-    # Шаг 2. Анализируем строки
-    for line in lines_to_process:
+    for line in lines:
         line = line.strip()
-        if not line:
+        if not line or line.startswith('#'):
             continue
 
-        # Пропускаем заголовки Markdown внутри текста
-        if line.startswith('#'):
-            continue
-
-        # Чистим от буллитов и ссылок
-        # Убираем маркеры списка "1.", "- ", "* "
+        # Clean line
         clean_line = line.lstrip('-*1234567890. ')
         clean_line = clean_line.replace('[[', '').replace(']]', '')
-
+        
         if '|' in clean_line:
             clean_line = clean_line.split('|')[0]
 
-        # Логика поиска повторений
+        # Try to extract reps from line
         reps = 0
-
-        # Вариант 1: "5x5" или "5х5" (рус х)
+        
+        # Pattern 1: "5x5" or "5х5"
         sets_reps_match = re.search(r'(\d+)\s*[xх]\s*(\d+)', clean_line)
-
-        # Вариант 2: "Упражнение - 5" или "Упражнение 5" в конце
-        reps_end_match = re.search(
-            r'[-–—]\s*(\d+)$', line)  # Тире и число в конце
-        reps_simple_match = re.search(
-            r'\s+(\d+)$', line)   # Просто число в конце
+        
+        # Pattern 2: "Exercise - 5"
+        reps_dash_match = re.search(r'[-–—]\s*(\d+)\s*$', clean_line)
+        
+        # Pattern 3: Just number at end
+        reps_simple_match = re.search(r'\s+(\d+)\s*$', clean_line)
 
         if sets_reps_match:
             sets = int(sets_reps_match.group(1))
             reps_per_set = int(sets_reps_match.group(2))
             reps = sets * reps_per_set
             clean_line = re.sub(r'\d+\s*[xх]\s*\d+', '', clean_line).strip()
-
-        elif reps_end_match:
-            reps = int(reps_end_match.group(1))
-            clean_line = re.sub(r'[-–—]\s*\d+$', '', clean_line).strip()
-
+        elif reps_dash_match:
+            reps = int(reps_dash_match.group(1))
+            clean_line = re.sub(r'[-–—]\s*\d+\s*$', '', clean_line).strip()
         elif reps_simple_match:
-            # Опасно, может быть год или вес, но пробуем
             reps = int(reps_simple_match.group(1))
-            clean_line = re.sub(r'\s+\d+$', '', clean_line).strip()
+            clean_line = re.sub(r'\s+\d+\s*$', '', clean_line).strip()
+        else:
+            # NO REPS IN LINE → USE SCHEME
+            if total_reps_from_scheme > 0:
+                reps = total_reps_from_scheme
+                print(f"   ℹ️  {clean_line}: нет повторений в строке, использую схему → {reps}")
 
-        # Если это не пустая строка и (мы нашли репсы ИЛИ это было в явной секции упражнений)
-        # Если секции не было, мы берем строку только если нашли в ней цифры (чтобы не брать мусор)
-        is_valid_exercise = False
-        if ex_section_match:
-            is_valid_exercise = True  # В секции верим всему
-        elif reps > 0:
-            is_valid_exercise = True  # Вне секции верим только если есть цифры
+        # Extract equipment
+        equipment = None
+        equip_match = re.search(r'\((.*?)\)', clean_line)
+        if equip_match:
+            equipment = equip_match.group(1)
+            clean_line = clean_line.replace(f'({equipment})', '').strip()
 
-        if is_valid_exercise and len(clean_line) > 2:
-            # Извлекаем оборудование (если есть в скобках)
-            equipment = None
-            equip_match = re.search(r'\((.*?)\)', clean_line)
-            if equip_match:
-                equipment = equip_match.group(1)
-                clean_line = clean_line.replace(f'({equipment})', '').strip()
-
+        if len(clean_line) > 2:
             exercises.append({
                 'name': clean_line.strip(),
                 'equipment': equipment,
@@ -181,20 +196,23 @@ def _parse_exercises(content):
     return exercises
 
 
-# Публичные функции для обратной совместимости
-
+# Public wrappers
 def extract_scheme(content):
-    """Публичная обёртка для извлечения схемы тренировки."""
     return _parse_scheme(content)
 
 
 def extract_exercises(content):
-    """Публичная обёртка для извлечения упражнений."""
-    return _parse_exercises(content)
+    content_clean = re.sub(
+        r'## AI Analysis\n.*?(?=\n## |\Z)', 
+        '', 
+        content, 
+        flags=re.DOTALL
+    )
+    scheme = _parse_scheme(content)
+    return _parse_exercises(content_clean, scheme)
 
 
 def extract_workout_metadata(post):
-    """Извлекает метаданные из frontmatter поста."""
     return {
         'date': str(post.metadata.get('date', '')),
         'type': post.metadata.get('type', 'Unknown'),
@@ -205,10 +223,6 @@ def extract_workout_metadata(post):
 
 
 def get_workout_summary(workout_data):
-    """
-    Формирует краткое описание тренировки.
-    Принимает словарь, возвращённый parse_workout_file().
-    """
     if not workout_data:
         return "Нет данных о тренировке"
 
@@ -231,9 +245,4 @@ def get_workout_summary(workout_data):
 
 
 def update_workout_analysis(file_path, analysis_data):
-    """
-    Обновляет анализ тренировки в файле.
-    Пока заглушка - при необходимости реализовать запись обратно в файл.
-    """
-    # TODO: Реализовать запись анализа обратно в markdown файл
     pass
