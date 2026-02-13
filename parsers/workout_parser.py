@@ -114,8 +114,8 @@ def parse_workout_file(filepath: str) -> dict:
             ex['reps'] = 0
 
     # Read duration from frontmatter (minutes)
-    # For EMOM: 'time' = per-round duration → total = time × sets
-    # For other types: 'duration' or 'time' = total duration
+    # For EMOM: 'time' → total = time × sets
+    # For other types: 'duration' = per-round duration or 'time' = total duration
     scheme_type = scheme.get('type', '')
     sets = scheme.get('sets', 1)
 
@@ -462,12 +462,11 @@ def extract_exercises(content: str) -> list[dict]:
                         exercise_text
                     ).strip()
 
-            # Extract wikilink name ([[Exercise Name]] -> Exercise Name)
-            wikilink_match = re.search(
-                r'\[\[([^\]]+)\]\]', exercise_text
-            )
-            if wikilink_match:
-                exercise_text = wikilink_match.group(1).strip()
+            # FIX: Remove wikilink brackets [[ ]]
+            # Handle aliases [[File|Alias]] -> File
+            exercise_text = exercise_text.replace('[[', '').replace(']]', '')
+            if '|' in exercise_text:
+                exercise_text = exercise_text.split('|')[0]
 
             # Extract equipment from parens
             equipment = ''
