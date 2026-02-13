@@ -1,10 +1,5 @@
 """
-Exercise cache module for workout analyzer.
-
-Provides caching functionality for exercise data with priority:
-1. Local exercise files (Exercises/ folder)
-2. Cache files (.cache/exercises/)
-3. Perplexity API
+Exercise cache with ROBUST name matching
 """
 
 import json
@@ -18,31 +13,86 @@ from parsers.exercise_parser import parse_exercise_file, needs_enrichment
 from ai.perplexity_client import PerplexityClient
 
 
+def normalize_exercise_name(name: str) -> str:
+    """
+    ROBUST name normalization for matching.
+
+    Examples:
+        "Злой поток" → "злой поток"
+        "злой_поток" → "злой поток"
+        "Злой-Поток" → "злой поток"
+        "ЗЛОЙ_ПОТОК" → "злой поток"
+    """
+    name = name.lower().strip()
+    # Replace underscores and hyphens with spaces
+    name = name.replace('_', ' ').replace('-', ' ')
+    # Remove extra spaces
+    name = ' '.join(name.split())
+    return name
+
+
+def find_local_exercise(name: str, equipment: str, exercises_folder: str) -> Optional[str]:
+    """
+    Find exercise file with ROBUST name matching.
+
+    IMPROVED: Uses normalize_exercise_name() for bulletproof matching.
+    """
+    if not os.path.exists(exercises_folder):
+        return None
+
+    # Normalize search name
+    search_name = normalize_exercise_name(name)
+
+    print(f"   🔍 Searching for: '{name}' (normalized: '{search_name}')")
+
+    # Try 1: Exact filename match (fast path)
+    safe_filename = sanitize_filename(name) + '.md'
+    direct_path = os.path.join(exercises_folder, safe_filename)
+    if os.path.exists(direct_path):
+        print(f"   ✅ Found by filename: {safe_filename}")
+        return direct_path
+
+    # Try 2: Search all files and compare frontmatter names
+    for filename in os.listdir(exercises_folder):
+        if not filename.endswith('.md'):
+            continue
+
+        filepath = os.path.join(exercises_folder, filename)
+        try:
+            exercise_data = parse_exercise_file(filepath)
+
+            # Get name from frontmatter
+            ex_name = exercise_data.get('name', '')
+
+            # Fallback: derive from filename
+            if not ex_name:
+                ex_name = os.path.splitext(filename)[0].replace('_', ' ')
+
+            # Normalize and compare
+            ex_name_normalized = normalize_exercise_name(ex_name)
+
+            if ex_name_normalized == search_name:
+                print(f"   ✅ Found by frontmatter: {filename}")
+                print(
+                    f"      Frontmatter name: '{ex_name}' → normalized: '{ex_name_normalized}'")
+                return filepath
+
+        except Exception as e:
+            print(f"   ⚠️  Error reading {filename}: {e}")
+            continue
+
+    print(f"   ❌ Not found in {exercises_folder}")
+    return None
+
+
 def get_cache_path(name: str, cache_dir: str) -> str:
-    """
-    Generate a cache file path from exercise name.
-
-    Args:
-        name: Exercise name.
-        cache_dir: Directory for cache files.
-
-    Returns:
-        Full path to the cache file.
-    """
+    """Generate cache file path."""
     safe_name = sanitize_filename(name)
     return os.path.join(cache_dir, f"{safe_name}.json")
 
 
 def load_from_cache(cache_file: str) -> Optional[dict]:
-    """
-    Load exercise data from a JSON cache file.
-
-    Args:
-        cache_file: Path to the cache file.
-
-    Returns:
-        Exercise data dictionary or None if not found/invalid.
-    """
+    """Load from cache (unchanged)."""
     if not os.path.exists(cache_file):
         return None
 
@@ -50,7 +100,6 @@ def load_from_cache(cache_file: str) -> Optional[dict]:
         with open(cache_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
-        # Validate required fields
         required_fields = ['name', 'equipment',
                            'met_base', 'cal_per_rep', 'muscle_groups']
         if not all(field in data for field in required_fields):
@@ -64,21 +113,10 @@ def load_from_cache(cache_file: str) -> Optional[dict]:
 
 
 def save_to_cache(cache_file: str, data: dict) -> bool:
-    """
-    Save exercise data to a JSON cache file.
-
-    Args:
-        cache_file: Path to the cache file.
-        data: Exercise data dictionary.
-
-    Returns:
-        True if successful, False otherwise.
-    """
+    """Save to cache (unchanged)."""
     try:
-        # Ensure directory exists
         ensure_dir_exists(os.path.dirname(cache_file))
 
-        # Add timestamp
         cache_data = {
             **data,
             'source': data.get('source', 'perplexity'),
@@ -94,54 +132,6 @@ def save_to_cache(cache_file: str, data: dict) -> bool:
         return False
 
 
-def find_local_exercise(name: str, equipment: str, exercises_folder: str) -> Optional[str]:
-    """
-    Find an exercise file in the local Exercises folder.
-
-    Args:
-        name: Exercise name.
-        equipment: Equipment used.
-        exercises_folder: Path to the Exercises folder.
-
-    Returns:
-        Path to the exercise file or None if not found.
-    """
-    if not os.path.exists(exercises_folder):
-        return None
-
-    # Search for matching file
-    for filename in os.listdir(exercises_folder):
-        if not filename.endswith('.md'):
-            continue
-
-        filepath = os.path.join(exercises_folder, filename)
-        try:
-            exercise_data = parse_exercise_file(filepath)
-
-            # Match by frontmatter 'name' field
-            ex_name = exercise_data.get('name', '')
-
-            # Fallback: derive name from filename
-            if not ex_name:
-                ex_name = (
-                    os.path.splitext(filename)[0]
-                    .replace('_', ' ')
-                )
-
-            # Check if name matches (case-insensitive, also handle underscores vs spaces)
-            # Normalize both names: replace underscores with spaces
-            ex_name_normalized = ex_name.lower().replace('_', ' ').replace('-', ' ')
-            name_normalized = name.lower().replace('_', ' ').replace('-', ' ')
-            if ex_name_normalized == name_normalized:
-                # Equipment matching is optional and lenient - skip strict check
-                # because equipment formats vary (e.g., "1x24кг" vs "kettlebell")
-                return filepath
-        except Exception:
-            continue
-
-    return None
-
-
 def get_exercise_data(
     name: str,
     equipment: str,
@@ -151,63 +141,51 @@ def get_exercise_data(
     force_refresh: bool = False
 ) -> dict:
     """
-    Get exercise data with caching priority:
-    1. Local exercise files (if exercises_folder provided)
+    Get exercise data with ROBUST local file search.
+
+    Priority:
+    1. Local exercise files (with ROBUST name matching)
     2. Cache files
     3. Perplexity API
-
-    Args:
-        name: Exercise name.
-        equipment: Equipment used.
-        vault_path: Path to Obsidian vault.
-        cache_dir: Directory for cache files.
-        exercises_folder: Optional folder with local exercise files.
-        force_refresh: If True, skip cache and fetch fresh data.
-
-    Returns:
-        Dictionary containing:
-        - name: str
-        - equipment: str
-        - met_base: float
-        - cal_per_rep: float
-        - muscle_groups: list[str]
-        - source: str ("local", "cache", "perplexity")
     """
-    # 1. Check local exercise files first (highest priority)
+    print(f"\n📝 Getting data for: {name}")
+
+    # 1. Check local exercise files FIRST
     if exercises_folder and not force_refresh:
         local_path = find_local_exercise(name, equipment, exercises_folder)
         if local_path:
             try:
                 exercise_data = parse_exercise_file(local_path)
 
-                # Check if local file has enriched data
+                # Check if enriched
                 if not needs_enrichment(exercise_data):
+                    print(f"   ✅ Using LOCAL file (fully enriched)")
                     return {
                         'name': exercise_data['name'],
                         'equipment': exercise_data['equipment'],
                         'met_base': exercise_data['met_base'],
                         'cal_per_rep': exercise_data['cal_per_rep'],
                         'muscle_groups': exercise_data['muscle_groups'],
+                        'components': exercise_data.get('components', []),
+                        'complexity_multiplier': exercise_data.get('complexity_multiplier', 1),
                         'source': 'local',
                         'description': exercise_data.get('description', '')
                     }
+                else:
+                    print(f"   ⚠️  Found LOCAL file but needs enrichment")
             except Exception as e:
-                print(f"Error reading local exercise {local_path}: {e}")
+                print(f"   ❌ Error reading local file: {e}")
 
-    # 2. Check cache files
+    # 2. Check cache
     if not force_refresh:
         cache_file = get_cache_path(name, cache_dir)
         cached_data = load_from_cache(cache_file)
         if cached_data:
-            # Verify equipment match if specified
-            if equipment and cached_data.get('equipment'):
-                if equipment.lower() in cached_data['equipment'].lower() or \
-                   cached_data['equipment'].lower() in equipment.lower():
-                    return cached_data
-            else:
-                return cached_data
+            print(f"   ✅ Using CACHE")
+            return cached_data
 
-    # 3. Fetch from Perplexity API
+    # 3. Fetch from Perplexity
+    print(f"   🌐 Fetching from PERPLEXITY API...")
     try:
         client = PerplexityClient()
         api_data = client.search_exercise_data(name, equipment)
@@ -218,46 +196,42 @@ def get_exercise_data(
             'met_base': api_data.get('met_base'),
             'cal_per_rep': api_data.get('cal_per_rep'),
             'muscle_groups': api_data.get('muscle_groups', []),
+            'components': [],
+            'complexity_multiplier': 1,
             'source': 'perplexity',
             'reasoning': api_data.get('reasoning', '')
         }
 
-        # Apply defaults if API returned None values
         if result['met_base'] is None:
-            result['met_base'] = 8.0  # Default MET for kettlebell exercises
+            result['met_base'] = 8.0
 
         # Save to cache
         cache_file = get_cache_path(name, cache_dir)
         save_to_cache(cache_file, result)
 
+        print(
+            f"   ✅ Got from Perplexity: MET={result['met_base']}, cal/rep={result['cal_per_rep']}")
         return result
 
     except Exception as e:
-        print(f"Error fetching from Perplexity API: {e}")
+        print(f"   ❌ Perplexity error: {e}")
 
-        # Return fallback data
+        # Fallback
         return {
             'name': name,
             'equipment': equipment,
-            'met_base': 8.0,  # Default MET
-            'cal_per_rep': 0.0,
-            'muscle_groups': [],
+            'met_base': 8.0,
+            'cal_per_rep': 2.0,
+            'muscle_groups': ['fullBody'],
+            'components': [],
+            'complexity_multiplier': 1,
             'source': 'fallback',
             'reasoning': f"API error: {str(e)}"
         }
 
 
 def clear_cache(cache_dir: str, older_than_days: int = None) -> int:
-    """
-    Clear cache files.
-
-    Args:
-        cache_dir: Directory containing cache files.
-        older_than_days: If specified, only clear files older than this many days.
-
-    Returns:
-        Number of files deleted.
-    """
+    """Clear cache (unchanged)."""
     if not os.path.exists(cache_dir):
         return 0
 
@@ -293,15 +267,7 @@ def clear_cache(cache_dir: str, older_than_days: int = None) -> int:
 
 
 def get_cache_stats(cache_dir: str) -> dict:
-    """
-    Get statistics about the cache.
-
-    Args:
-        cache_dir: Directory containing cache files.
-
-    Returns:
-        Dictionary with cache statistics.
-    """
+    """Get cache stats (unchanged)."""
     if not os.path.exists(cache_dir):
         return {'total_files': 0, 'total_size_bytes': 0, 'oldest_file': None, 'newest_file': None}
 
