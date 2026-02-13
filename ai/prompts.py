@@ -1,9 +1,8 @@
 """
-Shared prompt generation and utility logic for AI clients.
+Shared prompt generation with EXERCISE DETAILS support
 """
 
 import re
-import os
 
 
 def build_workout_prompt(
@@ -11,11 +10,10 @@ def build_workout_prompt(
     calories: int,
     muscle_balance: dict,
     actual_duration_minutes: int = 0,
-    exercises_details: list = None
+    exercises_details: list = None  # ← КРИТИЧНО!
 ) -> str:
     """
-    Build a prompt for AI to analyze a workout with Goal evaluation.
-    IMPROVED: Includes few-shot examples and strict structure.
+    Build prompt with FULL EXERCISE DETAILS for complex movements.
     """
     date = workout_data.get("date", "Unknown")
     workout_type = workout_data.get("type", "Unknown")
@@ -23,59 +21,87 @@ def build_workout_prompt(
     scheme = workout_data.get("scheme", {})
     exercises = workout_data.get("exercises", [])
 
-    # Build scheme description
     scheme_type = scheme.get("type", workout_type)
     pattern = scheme.get("pattern", "")
     total_reps = scheme.get("total_reps", 0)
 
-    # Calculate actual reps if not in scheme
     if total_reps == 0:
         total_reps = sum([ex.get('reps', 0) or 0 for ex in exercises])
 
-    # Duration logic
+    # Duration
     if actual_duration_minutes > 0:
         estimated_time = actual_duration_minutes
     else:
         reps_per_set = scheme.get("reps_per_set", [])
         time_per_rep = scheme.get("time_per_rep", 0)
         rest_between = scheme.get("rest_between", 0)
-
         estimated_time = (
             total_reps * time_per_rep / 60 +
             (total_reps / max(len(reps_per_set), 1) - 1) * rest_between / 60
         )
         estimated_time = max(estimated_time, 10)
 
-    # IMPROVEMENT: Prioritize exercises by volume, remove verbose descriptions
+    # IMPROVED: Include exercise components and muscle groups
     exercises_list = []
-    
+
     for i, ex in enumerate(exercises, 1):
         name = ex.get('name', 'Unknown')
         reps = ex.get('reps', 0)
         equipment = ex.get('equipment', '')
-        
-        # Format: "1. Name (equipment) - X reps"
-        ex_str = f"{i}. {name}"
+
+        # Basic info
+        ex_str = f"{i}. **{name}**"
         if equipment:
             ex_str += f" ({equipment})"
         if reps:
-            ex_str += f" - {reps} повторений"
-        
+            ex_str += f" — {reps} повторений"
+
+        # NEW: Add detailed info if available
+        if exercises_details and i-1 < len(exercises_details):
+            detail = exercises_details[i-1]
+
+            # Check for complex exercise
+            components = detail.get('components', [])
+            complexity = detail.get('complexity_multiplier', 1)
+
+            if components and len(components) > 1:
+                ex_str += f"\n   **КОМПЛЕКСНОЕ упражнение** ({complexity} компонентов):"
+                for j, comp in enumerate(components, 1):
+                    ex_str += f"\n   {j}. {comp}"
+
+            # Add muscle groups worked
+            muscle_groups = detail.get('muscle_groups', [])
+            if muscle_groups:
+                muscle_groups_ru = {
+                    'shoulders': 'плечи',
+                    'chest': 'грудь',
+                    'back': 'спина',
+                    'core': 'кор',
+                    'legs': 'ноги',
+                    'arms': 'руки',
+                    'fullBody': 'всё тело'
+                }
+                muscles_str = ', '.join([
+                    muscle_groups_ru.get(mg, mg) for mg in muscle_groups
+                ])
+                ex_str += f"\n   Работающие мышцы: {muscles_str}"
+
         exercises_list.append(ex_str)
 
-    exercises_str = "\n".join(exercises_list) if exercises_list else "Упражнения не указаны"
+    exercises_str = "\n\n".join(
+        exercises_list) if exercises_list else "Упражнения не указаны"
 
-    # Build muscle balance
+    # Muscle balance
     muscle_groups_mapping = {
         'shoulders': 'Плечи',
-        'legs': 'Ноги', 
+        'legs': 'Ноги',
         'core': 'Пресс',
         'back': 'Спина',
         'chest': 'Грудь',
         'arms': 'Руки',
         'fullBody': 'Всё тело'
     }
-    
+
     if muscle_balance:
         balance_parts = []
         for k, v in sorted(muscle_balance.items(), key=lambda x: -x[1]):
@@ -85,13 +111,29 @@ def build_workout_prompt(
     else:
         balance_str = "Нет данных о балансе мышц"
 
-    # Calculate intensity
     intensity = round(calories/max(estimated_time, 1), 1)
 
-    # Improved template with few-shot examples
+    # Template with CRITICAL instruction about components
     template = """Ты эксперт по функциональному тренингу и физиологии. Проанализируй тренировку атлета (мужчина, 81 кг).
 
-**ВАЖНО: Твоя главная задача — оценить соответствие тренировки ЦЕЛИ.**
+**КРИТИЧЕСКИ ВАЖНО:**
+Если упражнение КОМПЛЕКСНОЕ (содержит несколько компонентов):
+1. **Анализируй КАЖДЫЙ компонент отдельно**
+2. Учитывай работу мышц во ВСЕХ компонентах
+3. НЕ пиши "упражнение не описано" — компоненты УКАЗАНЫ НИЖЕ!
+
+Например, если "злой поток" включает:
+- Турецкий подъем → МАКСИМАЛЬНАЯ работа стабилизаторов плеча
+- Мельница → ИНТЕНСИВНАЯ работа кора и стабилизаторов
+- Жимы → ОБЯЗАТЕЛЬНАЯ работа грудных
+
+ТО **ЗАПРЕЩЕНО** писать:
+❌ "Стабилизаторы плеча не работают"
+❌ "Грудь: 0%"
+❌ "Добавьте упражнения на кор"
+❌ "Недостаточно внимания к стабилизаторам"
+
+---
 
 ## Контекст тренировки
 - Дата: {date}
@@ -99,7 +141,7 @@ def build_workout_prompt(
 - Схема: {scheme_type} ({pattern})
 - **ЦЕЛЬ**: "{goal}"
 
-## Упражнения
+## Упражнения (с детализацией)
 {exercises_str}
 
 ## Метрики
@@ -113,55 +155,30 @@ def build_workout_prompt(
 
 ---
 
-## Формат ответа (обязательно следуй структуре)
+## Формат ответа
 
 ### Соответствие цели
 **Оценка:** [число]/10
-- Способствует ли подборка упражнений достижению цели "{goal}"?
-- Если нет — почему конкретно?
-- Гормональный отклик (тестостерон/гормон роста): [оценка]
+- Способствует ли подборка упражнений (УЧИТЫВАЯ ВСЕ КОМПОНЕНТЫ!) достижению цели "{goal}"?
+- Если да — объясни почему конкретно, ссылаясь на компоненты
+- Гормональный отклик: [оценка]
 
 ### Анализ нагрузки
 - Плотность: [X] повторений/минуту — [вердикт]
-- Дисбаланс: [есть/нет] — [объяснение]
+- Дисбаланс: [есть/нет] — НО учитывай КОМПОНЕНТЫ комплексных упражнений!
 
 ### Рекомендации
-1. Что добавить/убрать для лучшего попадания в цель
+1. Что добавить/убрать (НЕ предлагай то, что УЖЕ есть в компонентах!)
 2. Конкретные упражнения-замены
-3. Изменения в режиме (вес/объем/отдых)
+3. Изменения в режиме
 
 ### Восстановление
 - Рекомендуемый отдых: [X] часов
-- Причина: [ЦНС-нагрузка/микротравмы/etc]
+- Причина: [обоснование]
 
 ---
 
-## Пример хорошего анализа
-
-**Цель:** "Увеличить силу в становой тяге"
-
-### Соответствие цели
-**Оценка:** 4/10
-Тренировка включает много жимов (60% объема), но мало тяговых движений (20%). Для силы в становой нужна мощная задняя цепь, а здесь основная работа — плечи и грудь.
-
-**Гормональный отклик:** Умеренный. Базовые движения есть, но без тяжелых приседов/тяг эффект ограничен.
-
-### Анализ нагрузки
-- Плотность: 12 повторений/минуту — высокая для силовой работы (лучше 4-6)
-- Дисбаланс: Критический. 0% работы задней цепи (ягодицы, бицепс бедра)
-
-### Рекомендации
-1. Добавить румынскую тягу 5x5 вместо жимов
-2. Заменить отжимания на тягу в наклоне
-3. Увеличить вес, снизить повторения до 3-5
-
-### Восстановление
-- 72 часа отдыха
-- Причина: высокая ЦНС-нагрузка от тяжелых базовых движений
-
----
-
-Теперь твой анализ (будь конкретен, без воды):
+Твой анализ (будь ВНИМАТЕЛЕН к компонентам упражнений):
 """
 
     prompt = template.format(
@@ -182,18 +199,12 @@ def build_workout_prompt(
 
 
 def clean_markdown_response(text: str) -> str:
-    """
-    Clean up AI response if it has markdown code blocks validation.
-    """
+    """Clean up AI response."""
     if not text:
         return ""
 
-    # Remove markdown code blocks
     cleaned = re.sub(r'^```markdown?\s*', '', text, flags=re.MULTILINE)
     cleaned = re.sub(r'\s*```\s*$', '', cleaned, flags=re.MULTILINE)
-    
-    # Remove excessive newlines
     cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
-    
-    # Remove leading/trailing whitespace
+
     return cleaned.strip()
