@@ -126,7 +126,7 @@ def parse_workout_file(filepath: str) -> dict:
         # 'duration' is normally total
         val = _parse_duration(raw_dur)
         if val and scheme_type == 'EMOM':
-            # Heuristic: if duration is very short relative to sets, 
+            # Heuristic: if duration is very short relative to sets,
             # it implies per-round time (e.g. 1 min for 20 sets)
             # Threshold: if val < sets * 0.2 (allowing for very short intervals)
             # Actually, let's use 0.5 (30s per round minimum for "normal" EMOMs)
@@ -167,10 +167,10 @@ def parse_workout_file(filepath: str) -> dict:
 def extract_scheme(content: str) -> dict:
     """
     Extract workout scheme from markdown content.
-    
+
     Args:
         content: The markdown content of the workout.
-        
+
     Returns:
         Dictionary containing:
         - type: str (Лесенка, EMOM, Табата, etc.)
@@ -188,13 +188,13 @@ def extract_scheme(content: str) -> dict:
         'time_per_rep': 3,
         'rest_between': 60,
     }
-    
+
     # Detect scheme type
     for scheme_type in SCHEME_TYPES:
         if scheme_type.lower() in content.lower():
             scheme['type'] = scheme_type
             break
-    
+
     # If no scheme type found, try to infer from content
     if not scheme['type']:
         if 'лесенка' in content.lower() or 'ladder' in content.lower():
@@ -207,7 +207,7 @@ def extract_scheme(content: str) -> dict:
             scheme['type'] = 'AMRAP'
         elif 'rft' in content.lower() or 'rounds for time' in content.lower():
             scheme['type'] = 'RFT'
-    
+
     # Extract pattern (e.g., "1-2-3-4-5-5-4-3-2-1")
     # Only search within the Схема section to avoid matching dates
     scheme_section = ''
@@ -229,7 +229,8 @@ def extract_scheme(content: str) -> dict:
     if pattern_match:
         pattern_str = pattern_match.group(1)
         # Parse pattern into reps per set
-        reps = re.findall(r'\d+', pattern_str.replace('-', ' ').replace(',', ' '))
+        reps = re.findall(
+            r'\d+', pattern_str.replace('-', ' ').replace(',', ' '))
         scheme['pattern'] = pattern_str.replace(' ', '-')
         scheme['reps_per_set'] = [int(r) for r in reps]
         scheme['total_reps'] = sum(scheme['reps_per_set'])
@@ -248,11 +249,11 @@ def extract_scheme(content: str) -> dict:
     )
     if sets_match:
         scheme['sets'] = int(sets_match.group(1))
-        
+
         # Check if "sets" describes the ladder rungs rather than repetitions
         # Heuristic: if sets == pattern_len and pattern is monotonic, don't multiply
         should_multiply = True
-        
+
         if scheme['type'] == 'Лесенка' and scheme['reps_per_set']:
             pattern_len = len(scheme['reps_per_set'])
             if scheme['sets'] == pattern_len:
@@ -260,12 +261,14 @@ def extract_scheme(content: str) -> dict:
                 # Check strict monotonicity (strictly increasing or decreasing)
                 # allowing equal values for plateaus usually, but for ladders
                 # usually strictly monotonic. Let's use <= >= to be safe.
-                is_increasing = all(reps[i] <= reps[i+1] for i in range(len(reps)-1))
-                is_decreasing = all(reps[i] >= reps[i+1] for i in range(len(reps)-1))
-                
+                is_increasing = all(reps[i] <= reps[i+1]
+                                    for i in range(len(reps)-1))
+                is_decreasing = all(reps[i] >= reps[i+1]
+                                    for i in range(len(reps)-1))
+
                 if is_increasing or is_decreasing:
                     should_multiply = False
-        
+
         if should_multiply and scheme['total_reps'] > 0:
             scheme['total_reps'] *= scheme['sets']
     else:
@@ -282,17 +285,19 @@ def extract_scheme(content: str) -> dict:
         )
         if rev_match:
             scheme['sets'] = int(rev_match.group(1))
-            
+
             # Check if "sets" describes the ladder rungs rather than repetitions
             should_multiply = True
-            
+
             if scheme['type'] == 'Лесенка' and scheme['reps_per_set']:
                 pattern_len = len(scheme['reps_per_set'])
                 if scheme['sets'] == pattern_len:
                     reps = scheme['reps_per_set']
-                    is_increasing = all(reps[i] <= reps[i+1] for i in range(len(reps)-1))
-                    is_decreasing = all(reps[i] >= reps[i+1] for i in range(len(reps)-1))
-                    
+                    is_increasing = all(reps[i] <= reps[i+1]
+                                        for i in range(len(reps)-1))
+                    is_decreasing = all(reps[i] >= reps[i+1]
+                                        for i in range(len(reps)-1))
+
                     if is_increasing or is_decreasing:
                         should_multiply = False
 
@@ -302,25 +307,31 @@ def extract_scheme(content: str) -> dict:
             scheme['sets'] = 1
 
     # Extract timing info
-    time_per_rep_match = re.search(r'(\d+)\s*сек.*на\s*повторение|time per rep[:\s]*(\d+)', content.lower())
+    time_per_rep_match = re.search(
+        r'(\d+)\s*сек.*на\s*повторение|time per rep[:\s]*(\d+)', content.lower())
     if time_per_rep_match:
-        scheme['time_per_rep'] = int(time_per_rep_match.group(1) or time_per_rep_match.group(2))
-    
-    rest_match = re.search(r'(\d+)\s*сек.*отдых|rest[:\s]*(\d+)|отдых.*(\d+)\s*сек', content.lower())
+        scheme['time_per_rep'] = int(
+            time_per_rep_match.group(1) or time_per_rep_match.group(2))
+
+    rest_match = re.search(
+        r'(\d+)\s*сек.*отдых|rest[:\s]*(\d+)|отдых.*(\d+)\s*сек', content.lower())
     if rest_match:
-        scheme['rest_between'] = int(rest_match.group(1) or rest_match.group(2) or rest_match.group(3))
-    
+        scheme['rest_between'] = int(rest_match.group(
+            1) or rest_match.group(2) or rest_match.group(3))
+
     # Try to extract from EMOM format (e.g., "EMOM 20: 5 повторений")
-    emom_match = re.search(r'emom[:\s]*(\d+)[:\s]*(\d+)\s*повторений', content.lower())
+    emom_match = re.search(
+        r'emom[:\s]*(\d+)[:\s]*(\d+)\s*повторений', content.lower())
     if emom_match:
         scheme['type'] = 'EMOM'
         total_time = int(emom_match.group(1))
         reps = int(emom_match.group(2))
         scheme['reps_per_set'] = [reps] * (total_time // 60)
         scheme['total_reps'] = sum(scheme['reps_per_set'])
-    
+
     # Try to extract from Табата format (e.g., "Табата 4x20/10")
-    tabata_match = re.search(r'табата[:\s]*(\d+)\s*[x×]\s*(\d+)\s*[/]\s*(\d+)', content.lower())
+    tabata_match = re.search(
+        r'табата[:\s]*(\d+)\s*[x×]\s*(\d+)\s*[/]\s*(\d+)', content.lower())
     if tabata_match:
         scheme['type'] = 'Табата'
         rounds = int(tabata_match.group(1))
@@ -351,41 +362,42 @@ def extract_scheme(content: str) -> dict:
 def extract_exercises(content: str) -> list[dict]:
     """
     Extract exercises from markdown content.
-    
+
     Args:
         content: The markdown content of the workout.
-        
+
     Returns:
         List of dictionaries, each containing:
         - name: str
         - equipment: str (optional)
     """
     exercises = []
-    
+
     # Pattern to match exercise lines
     # Examples:
     # - Становая тяга 2х гирь (2x24кг)
     # - Махи гирей в сторону (1x16кг)
     # - Турник (подтягивания)
-    
+    # - [[Становая тяга]] (wikilink format)
+
     exercise_pattern = re.compile(
         r'^\s*[-*•]\s*(.+?)\s*$',
         re.MULTILINE
     )
-    
+
     # Alternative pattern for numbered lists
     numbered_pattern = re.compile(
         r'^\s*\d+[.)]\s*(.+?)\s*$',
         re.MULTILINE
     )
-    
+
     # Find all exercise-like lines
     lines = content.split('\n')
     for line in lines:
         line = line.strip()
         if not line:
             continue
-        
+
         # Stop at analysis section (must check before
         # generic header skip)
         if line.startswith('#'):
@@ -395,7 +407,7 @@ def extract_exercises(content: str) -> list[dict]:
                     or 'ai' in lower):
                 break
             continue
-        
+
         # Try to match exercise pattern
         match = (
             exercise_pattern.match(line)
@@ -450,6 +462,13 @@ def extract_exercises(content: str) -> list[dict]:
                         exercise_text
                     ).strip()
 
+            # Extract wikilink name ([[Exercise Name]] -> Exercise Name)
+            wikilink_match = re.search(
+                r'\[\[([^\]]+)\]\]', exercise_text
+            )
+            if wikilink_match:
+                exercise_text = wikilink_match.group(1).strip()
+
             # Extract equipment from parens
             equipment = ''
             eq_match = re.search(
@@ -479,7 +498,7 @@ def extract_exercises(content: str) -> list[dict]:
                         reps_per_round
                     )
                 exercises.append(ex_data)
-    
+
     return exercises
 
 
@@ -522,17 +541,17 @@ def needs_analysis(workout_data: dict) -> bool:
 def update_workout_analysis(filepath: str, analysis: str) -> None:
     """
     Update the AI Analysis section in a workout file.
-    
+
     Args:
         filepath: Path to the workout markdown file.
         analysis: The AI analysis markdown content to insert/update.
     """
     if not os.path.exists(filepath):
         raise FileNotFoundError(f"Workout file not found: {filepath}")
-    
+
     with open(filepath, 'r', encoding='utf-8') as f:
         post = frontmatter.load(f)
-    
+
     # Check if AI Analysis section already exists
     content = post.content
 
@@ -569,60 +588,61 @@ def update_workout_analysis(filepath: str, analysis: str) -> None:
 def get_workout_summary(workout_data: dict) -> str:
     """
     Generate a summary string from parsed workout data.
-    
+
     Args:
         workout_data: Parsed workout data dictionary.
-        
+
     Returns:
         Human-readable summary string.
     """
     parts = []
-    
+
     if workout_data.get('date'):
         parts.append(f"Дата: {workout_data['date']}")
-    
+
     if workout_data.get('type'):
         parts.append(f"Тип: {workout_data['type']}")
-    
+
     scheme = workout_data.get('scheme', {})
     if scheme.get('type'):
         parts.append(f"Схема: {scheme['type']}")
-    
+
     exercises = workout_data.get('exercises', [])
     if exercises:
         parts.append(f"Упражнений: {len(exercises)}")
-    
+
     if scheme.get('total_reps'):
         parts.append(f"Всего повторений: {scheme['total_reps']}")
-    
+
     return ' | '.join(parts)
 
 
 def extract_workout_metadata(content: str) -> dict:
     """
     Extract additional metadata from workout content.
-    
+
     Args:
         content: The markdown content of the workout.
-        
+
     Returns:
         Dictionary with additional metadata.
     """
     metadata = {}
-    
+
     # Extract date from content if not in frontmatter
     date_match = re.search(r'(\d{4}[-]\d{2}[-]\d{2})', content)
     if date_match:
         metadata['date'] = date_match.group(1)
-    
+
     # Extract user weight mentioned in content
     weight_match = re.search(r'вес[:\s]*(\d+)', content.lower())
     if weight_match:
         metadata['weight'] = int(weight_match.group(1))
-    
+
     # Extract workout notes
-    notes_match = re.search(r' notes?[:\s]*(.+?)(?=\n##|\n#\s|$)', content, re.IGNORECASE | re.DOTALL)
+    notes_match = re.search(
+        r' notes?[:\s]*(.+?)(?=\n##|\n#|\s*$)', content, re.IGNORECASE | re.DOTALL)
     if notes_match:
         metadata['notes'] = notes_match.group(1).strip()
-    
+
     return metadata

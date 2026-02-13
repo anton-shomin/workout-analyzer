@@ -15,7 +15,7 @@ from pathlib import Path
 
 from utils.helpers import sanitize_filename, ensure_dir_exists
 from parsers.exercise_parser import parse_exercise_file, needs_enrichment
-from ai.perplexity_client import search_exercise_data
+from ai.perplexity_client import PerplexityClient
 
 
 def get_cache_path(name: str, cache_dir: str) -> str:
@@ -209,7 +209,8 @@ def get_exercise_data(
     
     # 3. Fetch from Perplexity API
     try:
-        api_data = search_exercise_data(name, equipment)
+        client = PerplexityClient()
+        api_data = client.search_exercise_data(name, equipment)
         
         result = {
             'name': name,

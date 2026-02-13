@@ -10,7 +10,8 @@ def build_workout_prompt(
     workout_data: dict,
     calories: int,
     muscle_balance: dict,
-    actual_duration_minutes: int = 0
+    actual_duration_minutes: int = 0,
+    exercises_details: list = None
 ) -> str:
     """
     Build a prompt for AI to analyze a workout with Goal evaluation.
@@ -42,21 +43,41 @@ def build_workout_prompt(
         )
         estimated_time = max(estimated_time, 10)  # Minimum 10 minutes
 
-    # Build exercises list
+    # Build exercises list with descriptions
     exercises_list = []
+
+    # Create a map of exercise descriptions: {name: description}
+    descriptions_map = {}
+    if exercises_details:
+        for ex_data in exercises_details:
+            name = ex_data.get('name')
+            desc = ex_data.get('description', '')
+            if name and desc:
+                descriptions_map[name] = desc
+
     for i, ex in enumerate(exercises, 1):
-        ex_str = f"{i}. {ex.get('name', 'Unknown')}"
+        name = ex.get('name', 'Unknown')
+        ex_str = f"{i}. {name}"
+
         if ex.get('equipment'):
             ex_str += f" ({ex.get('equipment')})"
         if ex.get('reps'):
             ex_str += f" - {ex.get('reps')} reps"
+
+        # Add exercise description context for AI
+        if name in descriptions_map:
+            short_desc = descriptions_map[name].replace('\n', ' ')[:200]
+            ex_str += f"\n   > Контекст: {short_desc}"
+
         exercises_list.append(ex_str)
 
-    exercises_str = "\n".join(exercises_list) if exercises_list else "No exercises listed"
+    exercises_str = "\n".join(
+        exercises_list) if exercises_list else "No exercises listed"
 
     # Build muscle balance string
     if muscle_balance:
-        balance_parts = [f"- {k}: {v}%" for k, v in sorted(muscle_balance.items())]
+        balance_parts = [f"- {k}: {v}%" for k,
+                         v in sorted(muscle_balance.items())]
         balance_str = "\n".join(balance_parts)
     else:
         balance_str = "No muscle balance data available"
@@ -65,7 +86,8 @@ def build_workout_prompt(
     intensity = round(calories/max(estimated_time, 1), 1)
 
     # Load prompt template
-    template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Templates', 'prompt_workout.txt')
+    template_path = os.path.join(os.path.dirname(
+        os.path.dirname(__file__)), 'Templates', 'prompt_workout.txt')
     try:
         with open(template_path, 'r', encoding='utf-8') as f:
             template = f.read()

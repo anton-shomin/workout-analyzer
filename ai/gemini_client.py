@@ -20,11 +20,11 @@ DEFAULT_MODEL = "gemini-2.0-flash"
 
 class GeminiClient:
     """Client for interacting with Gemini API."""
-    
+
     def __init__(self, api_key: Optional[str] = None):
         """
         Initialize the Gemini client.
-        
+
         Args:
             api_key: Gemini API key. If not provided, reads from GEMINI_API_KEY env var.
         """
@@ -35,37 +35,42 @@ class GeminiClient:
                 "google-generativeai package not installed. "
                 "Run: pip install google-generativeai"
             )
-        
+
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
-            raise ValueError("Gemini API key not found. Set GEMINI_API_KEY in .env")
-        
+            raise ValueError(
+                "Gemini API key not found. Set GEMINI_API_KEY in .env")
+
         self.client = genai.Client(api_key=self.api_key)
-    
+
     def analyze_workout(
         self,
         workout_data: dict,
         calories: int,
         muscle_balance: dict,
-        actual_duration_minutes: int = 0
+        actual_duration_minutes: int = 0,
+        exercises_details: list = None
     ) -> str:
         """
         Analyze a workout using Gemini API.
-        
+
         Args:
             workout_data: Parsed workout data from workout_parser.
             calories: Calculated calories burned.
             muscle_balance: Dictionary of muscle group percentages.
             actual_duration_minutes: Actual duration of the workout in minutes.
-            
+            exercises_details: List of exercise details including descriptions.
+
         Returns:
             Markdown formatted analysis text.
         """
-        prompt = build_workout_prompt(workout_data, calories, muscle_balance, actual_duration_minutes)
-        
+        prompt = build_workout_prompt(
+            workout_data, calories, muscle_balance, actual_duration_minutes, exercises_details)
+
         # Load system prompt
         try:
-            template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'Templates', 'system_prompt.txt')
+            template_path = os.path.join(os.path.dirname(
+                os.path.dirname(__file__)), 'Templates', 'system_prompt.txt')
             with open(template_path, 'r', encoding='utf-8') as f:
                 system_prompt = f.read()
         except FileNotFoundError:
@@ -76,21 +81,18 @@ class GeminiClient:
             config = {
                 'system_instruction': system_prompt
             }
-            
+
             response = self.client.models.generate_content(
                 model=DEFAULT_MODEL,
                 contents=prompt,
                 config=config
             )
-            
+
             if response.text:
                 return clean_markdown_response(response.text)
             else:
                 return "Не удалось получить анализ: пустой ответ от API."
-                
+
         except Exception as e:
             # Raise exception to allow fallback handling in main.py
             raise e
-
-
-
