@@ -32,7 +32,7 @@ def parse_workout_file(file_path):
         duration = 0
 
     # Parse scheme FIRST
-    scheme = _parse_scheme(content)
+    scheme = _parse_scheme(content, workout_type)
     
     # Remove AI Analysis section BEFORE parsing exercises
     content_without_analysis = re.sub(
@@ -57,7 +57,7 @@ def parse_workout_file(file_path):
     }
 
 
-def _parse_scheme(content):
+def _parse_scheme(content, workout_type='Unknown'):
     """
     IMPROVED: Extracts scheme and CALCULATES total reps
     """
@@ -90,6 +90,10 @@ def _parse_scheme(content):
             scheme['pattern'] = value
             # Calculate total reps from pattern
             scheme['reps_per_exercise'] = _calculate_reps_from_pattern(value)
+    
+    # Store workout type for exercise parsing
+    if 'type' not in scheme:
+        scheme['type'] = workout_type
 
     return scheme
 
@@ -117,13 +121,15 @@ def _calculate_reps_from_pattern(pattern: str) -> int:
 def _parse_exercises(content, scheme):
     """
     IMPROVED: Parses exercises and APPLIES SCHEME REPS if missing
+    FIXED: Handles EMOM format (number at START of line)
     """
     exercises = []
     
-    # Get reps from scheme
+    # Get scheme info
+    workout_type = scheme.get('type', '').upper()
     reps_from_scheme = scheme.get('reps_per_exercise', 0)
     rounds = scheme.get('rounds', 1)
-    total_reps_from_scheme = reps_from_scheme * rounds
+    is_emom = 'EMOM' in workout_type
 
     # Find exercise section
     ex_section_match = re.search(
@@ -156,28 +162,51 @@ def _parse_exercises(content, scheme):
         # Pattern 1: "5x5" or "5х5"
         sets_reps_match = re.search(r'(\d+)\s*[xх]\s*(\d+)', clean_line)
         
-        # Pattern 2: "Exercise - 5"
+        # Pattern 2: Number at START (EMOM format: "4 тяги")
+        # CRITICAL: This must come BEFORE "simple match at end"!
+        reps_start_match = re.search(r'^(\d+)\s+', clean_line)
+        
+        # Pattern 3: "Exercise - 5"
         reps_dash_match = re.search(r'[-–—]\s*(\d+)\s*$', clean_line)
         
-        # Pattern 3: Just number at end
+        # Pattern 4: Just number at end
         reps_simple_match = re.search(r'\s+(\d+)\s*$', clean_line)
 
         if sets_reps_match:
+            # "5x5" format
             sets = int(sets_reps_match.group(1))
             reps_per_set = int(sets_reps_match.group(2))
             reps = sets * reps_per_set
             clean_line = re.sub(r'\d+\s*[xх]\s*\d+', '', clean_line).strip()
+            
+        elif reps_start_match:
+            # EMOM format: "4 тяги"
+            reps_per_round = int(reps_start_match.group(1))
+            clean_line = re.sub(r'^\d+\s+', '', clean_line).strip()
+            
+            # For EMOM: multiply by rounds
+            if is_emom:
+                reps = reps_per_round * rounds
+                print(f"   ℹ️  EMOM: {clean_line}: {reps_per_round} × {rounds} rounds = {reps}")
+            else:
+                reps = reps_per_round
+                
         elif reps_dash_match:
+            # "Exercise - 5" format
             reps = int(reps_dash_match.group(1))
             clean_line = re.sub(r'[-–—]\s*\d+\s*$', '', clean_line).strip()
+            
         elif reps_simple_match:
+            # Number at end
             reps = int(reps_simple_match.group(1))
             clean_line = re.sub(r'\s+\d+\s*$', '', clean_line).strip()
+            
         else:
             # NO REPS IN LINE → USE SCHEME
-            if total_reps_from_scheme > 0:
+            if reps_from_scheme > 0:
+                total_reps_from_scheme = reps_from_scheme * rounds
                 reps = total_reps_from_scheme
-                print(f"   ℹ️  {clean_line}: нет повторений в строке, использую схему → {reps}")
+                print(f"   ℹ️  {clean_line}: нет повторений, использую схему → {reps}")
 
         # Extract equipment
         equipment = None
