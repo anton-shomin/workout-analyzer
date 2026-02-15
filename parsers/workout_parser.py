@@ -118,18 +118,42 @@ def _calculate_reps_from_pattern(pattern: str) -> int:
     return total
 
 
+def _should_multiply_by_rounds(workout_type: str) -> bool:
+    """
+    Determine if this workout type should multiply reps by rounds.
+    
+    EMOM, Circuit (Круговая), Tabata - YES
+    Ladder with pattern - NO (pattern already accounts for rounds)
+    """
+    workout_type_upper = workout_type.upper()
+    
+    # Types that multiply
+    multiply_types = ['EMOM', 'CIRCUIT', 'КРУГОВАЯ', 'TABATA', 'AMRAP']
+    
+    for mtype in multiply_types:
+        if mtype in workout_type_upper:
+            return True
+    
+    return False
+
+
 def _parse_exercises(content, scheme):
     """
-    IMPROVED: Parses exercises and APPLIES SCHEME REPS if missing
-    FIXED: Handles EMOM format (number at START of line)
+    FINAL FIX: Parses exercises and MULTIPLIES BY ROUNDS when needed
+    
+    Key logic:
+    1. Parse reps from line (e.g., "4" or "- 5")
+    2. Check workout type
+    3. If EMOM/Circuit/Tabata → multiply by rounds
+    4. If Ladder with pattern → use pattern total
     """
     exercises = []
     
     # Get scheme info
-    workout_type = scheme.get('type', '').upper()
+    workout_type = scheme.get('type', '')
     reps_from_scheme = scheme.get('reps_per_exercise', 0)
     rounds = scheme.get('rounds', 1)
-    is_emom = 'EMOM' in workout_type
+    should_multiply = _should_multiply_by_rounds(workout_type)
 
     # Find exercise section
     ex_section_match = re.search(
@@ -146,7 +170,7 @@ def _parse_exercises(content, scheme):
 
     for line in lines:
         line = line.strip()
-        if not line or line.startswith('#'):
+        if not line or line.startswith('#') or line.startswith('('):
             continue
 
         # Clean line
@@ -157,56 +181,64 @@ def _parse_exercises(content, scheme):
             clean_line = clean_line.split('|')[0]
 
         # Try to extract reps from line
-        reps = 0
+        reps_per_round = 0  # Reps in ONE round
         
-        # Pattern 1: "5x5" or "5х5"
+        # Pattern 1: "5x5" or "5х5" (sets × reps)
         sets_reps_match = re.search(r'(\d+)\s*[xх]\s*(\d+)', clean_line)
         
-        # Pattern 2: Number at START (EMOM format: "4 тяги")
-        # CRITICAL: This must come BEFORE "simple match at end"!
+        # Pattern 2: Number at START (EMOM: "4 тяги")
         reps_start_match = re.search(r'^(\d+)\s+', clean_line)
         
-        # Pattern 3: "Exercise - 5"
+        # Pattern 3: "Exercise - 5" (CRITICAL!)
         reps_dash_match = re.search(r'[-–—]\s*(\d+)\s*$', clean_line)
         
         # Pattern 4: Just number at end
         reps_simple_match = re.search(r'\s+(\d+)\s*$', clean_line)
 
         if sets_reps_match:
-            # "5x5" format
+            # "5x5" format - already total
             sets = int(sets_reps_match.group(1))
             reps_per_set = int(sets_reps_match.group(2))
-            reps = sets * reps_per_set
+            reps_per_round = sets * reps_per_set
             clean_line = re.sub(r'\d+\s*[xх]\s*\d+', '', clean_line).strip()
+            # Don't multiply - this is already total
+            should_multiply_this = False
             
         elif reps_start_match:
-            # EMOM format: "4 тяги"
+            # Number at START: "4 тяги"
             reps_per_round = int(reps_start_match.group(1))
             clean_line = re.sub(r'^\d+\s+', '', clean_line).strip()
-            
-            # For EMOM: multiply by rounds
-            if is_emom:
-                reps = reps_per_round * rounds
-                print(f"   ℹ️  EMOM: {clean_line}: {reps_per_round} × {rounds} rounds = {reps}")
-            else:
-                reps = reps_per_round
+            should_multiply_this = should_multiply
                 
         elif reps_dash_match:
             # "Exercise - 5" format
-            reps = int(reps_dash_match.group(1))
+            reps_per_round = int(reps_dash_match.group(1))
             clean_line = re.sub(r'[-–—]\s*\d+\s*$', '', clean_line).strip()
+            should_multiply_this = should_multiply
             
         elif reps_simple_match:
             # Number at end
-            reps = int(reps_simple_match.group(1))
+            reps_per_round = int(reps_simple_match.group(1))
             clean_line = re.sub(r'\s+\d+\s*$', '', clean_line).strip()
+            should_multiply_this = should_multiply
             
         else:
             # NO REPS IN LINE → USE SCHEME
             if reps_from_scheme > 0:
-                total_reps_from_scheme = reps_from_scheme * rounds
-                reps = total_reps_from_scheme
-                print(f"   ℹ️  {clean_line}: нет повторений, использую схему → {reps}")
+                # Pattern already includes rounds
+                reps_per_round = reps_from_scheme
+                should_multiply_this = True  # Will multiply by rounds
+                print(f"   ℹ️  {clean_line}: using pattern → {reps_from_scheme} × {rounds}")
+            else:
+                reps_per_round = 0
+                should_multiply_this = False
+
+        # CRITICAL: Multiply if needed
+        if should_multiply_this and rounds > 1:
+            total_reps = reps_per_round * rounds
+            print(f"   ℹ️  {workout_type}: {clean_line} = {reps_per_round} × {rounds} rounds = {total_reps}")
+        else:
+            total_reps = reps_per_round
 
         # Extract equipment
         equipment = None
@@ -219,7 +251,7 @@ def _parse_exercises(content, scheme):
             exercises.append({
                 'name': clean_line.strip(),
                 'equipment': equipment,
-                'reps': reps
+                'reps': total_reps
             })
 
     return exercises
